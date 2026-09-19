@@ -25,6 +25,8 @@ from .models import TaskCreate, TaskPatch, TaskRecord
 from .repository import Repository
 from .planning_models import PlanPreview, PreviewRequest
 from .scheduler import build_preview
+from .schedule_models import HistoryCommand, HistoryEntry, SavedSchedule, ScheduleCreate, ScheduleReplace, ScheduleResult, ScheduleSummary
+from .schedule_repository import ScheduleRepository
 from .settings import Settings
 
 COOKIE_NAME = "smartplanner_session"
@@ -33,7 +35,7 @@ TOKEN_FORMAT = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings.from_environment()
-    app = FastAPI(title="SmartPlanner", version="0.3.0", redoc_url=None)
+    app = FastAPI(title="SmartPlanner", version="0.4.0", redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[urlsplit(config.origin).hostname])
     passwords = Passwords()
     limiter = AuthLimiter(config.auth_requests_per_minute)
@@ -47,7 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return JSONResponse(status_code=403, content={"code": "origin_rejected", "message": "مبدأ درخواست معتبر نیست."})
             # Reject oversized declared bodies before decoding/hashing user input.
             length = request.headers.get("content-length")
-            body_limit = 131_072 if request.url.path == "/api/v1/schedules/preview" else 32_768
+            body_limit = 131_072 if request.url.path.startswith("/api/v1/schedules") else 32_768
             if length is not None and (not length.isdigit() or int(length) > body_limit):
                 return JSONResponse(status_code=413, content={"code": "request_too_large", "message": "حجم درخواست زیاد است."})
         response = await call_next(request)
@@ -99,7 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/health")
     def health():
-        return {"status": "ok", "version": "0.3.0"}
+        return {"status": "ok", "version": "0.4.0"}
 
     @app.get("/api/v1/ready")
     def ready(repo: Repo):
@@ -181,5 +183,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                  now=datetime.now(timezone.utc), preference_version=preferences.version)
         finally:
             planning_slots.release()
+
+    @app.post("/api/v1/schedules", response_model=ScheduleResult, status_code=201)
+    def save_schedule(data: ScheduleCreate, response: Response, user: User, repo: Repo):
+        result = ScheduleRepository(repo.conn).create(user.id, data)
+        if result.replayed:
+            response.status_code = 200
+        return result
+
+    @app.get("/api/v1/schedules", response_model=list[ScheduleSummary])
+    def saved_schedules(user: User, repo: Repo, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=100000)):
+        return ScheduleRepository(repo.conn).list(user.id, limit, offset)
+
+    @app.get("/api/v1/schedules/{schedule_id}", response_model=SavedSchedule)
+    def saved_schedule(schedule_id: UUID, user: User, repo: Repo):
+        return ScheduleRepository(repo.conn).get(user.id, schedule_id)
+
+    @app.put("/api/v1/schedules/{schedule_id}", response_model=ScheduleResult)
+    def edit_schedule(schedule_id: UUID, data: ScheduleReplace, user: User, repo: Repo):
+        return ScheduleRepository(repo.conn).replace(user.id, schedule_id, data)
+
+    @app.get("/api/v1/schedules/{schedule_id}/history", response_model=list[HistoryEntry])
+    def schedule_history(schedule_id: UUID, user: User, repo: Repo):
+        return ScheduleRepository(repo.conn).history(user.id, schedule_id)
+
+    @app.post("/api/v1/schedules/{schedule_id}/undo", response_model=ScheduleResult)
+    def undo_schedule(schedule_id: UUID, data: HistoryCommand, user: User, repo: Repo):
+        return ScheduleRepository(repo.conn).travel(user.id, schedule_id, data, "undo")
+
+    @app.post("/api/v1/schedules/{schedule_id}/redo", response_model=ScheduleResult)
+    def redo_schedule(schedule_id: UUID, data: HistoryCommand, user: User, repo: Repo):
+        return ScheduleRepository(repo.conn).travel(user.id, schedule_id, data, "redo")
 
     return app

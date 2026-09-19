@@ -7,7 +7,7 @@ from .database import connect
 from .settings import Settings
 
 
-LATEST_SCHEMA = 2
+LATEST_SCHEMA = 3
 
 
 def migrate(database_url: str, directory: Path) -> list[int]:

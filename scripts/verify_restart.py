@@ -6,6 +6,7 @@ Uses fictional test accounts only. Requires an explicitly selected test database
 import argparse
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -41,6 +42,25 @@ def main():
             response = client.post("/api/v1/tasks", json={"client_request_id": str(uuid4()), "title": "انگلیسی پس از شروع دوباره", "duration_minutes": 60})
             assert response.status_code == 201, response.text
             state["task_id"] = response.json()["id"]
+            day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+            content = {"start_date": day, "days": 1, "task_ids": [state["task_id"]],
+                       "availability": [{"start": f"{day}T09:00:00Z", "end": f"{day}T18:00:00Z"}],
+                       "blocks": [{"task_id": state["task_id"], "start": f"{day}T09:00:00Z", "end": f"{day}T10:00:00Z"}]}
+            create = {"client_request_id": str(uuid4()), "title": "برنامه پس از شروع دوباره", "content": content,
+                      "task_versions": {state["task_id"]: 1}, "preference_version": 1}
+            response = client.post("/api/v1/schedules", json=create)
+            assert response.status_code == 201, response.text
+            state["schedule_id"] = response.json()["schedule"]["id"]
+            path = f"/api/v1/schedules/{state['schedule_id']}"
+            content["blocks"][0].update(start=f"{day}T11:00:00Z", end=f"{day}T12:00:00Z")
+            response = client.put(path, json={**create, "client_request_id": str(uuid4()), "expected_version": 1})
+            assert response.status_code == 200, response.text
+            state["moved_state"] = response.json()["schedule"]["state"]
+            state["undo_request"] = {"client_request_id": str(uuid4()), "expected_version": 2}
+            response = client.post(path + "/undo", json=state["undo_request"])
+            assert response.status_code == 200, response.text
+            state["saved_schedule"] = response.json()["schedule"]
+            assert state["saved_schedule"]["can_redo"]
             args.state_file.write_text(json.dumps(state), encoding="utf-8")
             print("Restart probe seeded; now restart the database.")
         else:
@@ -48,7 +68,22 @@ def main():
             assert response.status_code == 200, response.text
             assert response.json()["title"] == "انگلیسی پس از شروع دوباره"
             assert response.json()["duration_minutes"] == 60
-            print("PASS: account login and saved task survived database/process restart.")
+            path = f"/api/v1/schedules/{state['schedule_id']}"
+            response = client.get(path)
+            assert response.status_code == 200, response.text
+            assert response.json() == state["saved_schedule"]
+            replay = client.post(path + "/undo", json=state["undo_request"])
+            assert replay.status_code == 200, replay.text
+            assert replay.json()["replayed"] and replay.json()["applied_version"] == 3
+            assert replay.json()["schedule"] == state["saved_schedule"]
+            redo = {"client_request_id": str(uuid4()), "expected_version": 3}
+            response = client.post(path + "/redo", json=redo)
+            assert response.status_code == 200, response.text
+            assert response.json()["schedule"]["version"] == 4
+            assert response.json()["schedule"]["state"] == state["moved_state"]
+            assert client.post(path + "/redo", json=redo).json()["replayed"]
+            assert len(client.get(path + "/history").json()) == 2
+            print("PASS: account, task, saved schedule, undo/redo history and request receipts survived database/process restart.")
 
 
 if __name__ == "__main__":
