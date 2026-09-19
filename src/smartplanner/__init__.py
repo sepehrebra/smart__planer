@@ -1,1 +1,1 @@
-"""SmartPlanner data contracts; database and HTTP adapters are not implemented yet."""
+"""SmartPlanner: authenticated task storage and deterministic schedule previews."""

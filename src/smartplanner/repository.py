@@ -117,6 +117,23 @@ class Repository:
         ).fetchall()
         return [TaskRecord.model_validate(row) for row in rows]
 
+    def planning_inputs(self, owner: UUID, task_ids: tuple[UUID, ...]):
+        # Keep task and preference versions from one database snapshot. End the
+        # transaction before CPU scheduling; the preview does not persist writes.
+        with self.conn.transaction():
+            self.conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            preferences = self.get_preferences(owner)
+            rows = self.conn.execute(
+                f"SELECT {TASK_COLUMNS} FROM tasks WHERE user_id = %s "
+                "AND id = ANY(%s::uuid[]) AND deleted_at IS NULL ORDER BY id",
+                (owner, list(task_ids)),
+            ).fetchall()
+            if len(rows) != len(task_ids):
+                # Foreign, deleted and unknown IDs have the same response.
+                raise not_found()
+            tasks = tuple(TaskRecord.model_validate(row) for row in rows)
+        return tasks, preferences
+
     def update_task(self, owner: UUID, task_id: UUID, patch: TaskPatch) -> TaskRecord:
         with self.conn.transaction():
             current = self.get_task(owner, task_id)
