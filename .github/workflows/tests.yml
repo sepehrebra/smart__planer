@@ -46,5 +46,5 @@ jobs:
         run: docker restart "$POSTGRES_CONTAINER"
       - name: Wait for database
         run: python scripts/wait_for_database.py
-      - name: Verify persisted account and task after restart
+      - name: Verify account, task, schedule and history after restart
         run: python scripts/verify_restart.py verify "$RUNNER_TEMP/planner-restart.json"

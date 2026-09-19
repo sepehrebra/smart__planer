@@ -47,13 +47,12 @@ class PlanBlock(TimeWindow):
     locked: StrictBool = False
 
 
-class PreviewRequest(Contract):
+class PlanningWindow(Contract):
     start_date: date
     days: StrictInt = 1
     task_ids: Annotated[tuple[UUID, ...], Field(max_length=100)]
     availability: Annotated[tuple[TimeWindow, ...], Field(max_length=28)] = ()
     fixed_events: Annotated[tuple[FixedEvent, ...], Field(max_length=100)] = ()
-    previous_blocks: Annotated[tuple[PlanBlock, ...], Field(max_length=512)] = ()
 
     @field_validator("start_date", mode="before")
     @classmethod
@@ -79,9 +78,17 @@ class PreviewRequest(Contract):
         return value
 
     @model_validator(mode="after")
-    def unique_tasks_and_known_blocks(self) -> Self:
+    def unique_tasks(self) -> Self:
         if len(set(self.task_ids)) != len(self.task_ids):
             raise ValueError("Task IDs must be unique.")
+        return self
+
+
+class PreviewRequest(PlanningWindow):
+    previous_blocks: Annotated[tuple[PlanBlock, ...], Field(max_length=512)] = ()
+
+    @model_validator(mode="after")
+    def known_blocks(self) -> Self:
         if any(block.task_id not in self.task_ids for block in self.previous_blocks):
             raise ValueError("Previous blocks must refer to selected tasks.")
         return self
@@ -91,7 +98,7 @@ class UnscheduledTask(Contract):
     task_id: UUID
     title: str
     remaining_minutes: Annotated[StrictInt, Field(ge=1)]
-    reason: Literal["deadline_passed", "no_slot_found", "search_limit"]
+    reason: Literal["deadline_passed", "no_slot_found", "search_limit", "not_scheduled"]
     message: str
 
 

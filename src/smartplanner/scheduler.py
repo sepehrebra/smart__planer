@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from .errors import AppError
 from .models import PreferenceValues, TaskRecord
-from .planning_models import PlanBlock, PlanPreview, PreviewRequest, TimeWindow, UnscheduledTask
+from .planning_models import PlanBlock, PlanPreview, PlanningWindow, PreviewRequest, TimeWindow, UnscheduledTask
 
 MINUTE = timedelta(minutes=1)
 MAX_CANDIDATES = 250_000
@@ -265,3 +265,35 @@ def build_preview(request: PreviewRequest, tasks: tuple[TaskRecord, ...], prefer
         task_versions={key: planner.tasks[key].version for key in sorted(planner.tasks, key=str)},
         preference_version=preference_version, warnings=planner.warnings(),
     )
+
+
+def inspect_layout(window: PlanningWindow, blocks: tuple[PlanBlock, ...], tasks: tuple[TaskRecord, ...],
+                   preferences: PreferenceValues, *, timezone_name: str):
+    """Validate an exact layout without allocating or moving anything.
+
+    Reuse hard constraints at the horizon's start to allow unchanged historical
+    placements. The persistence layer separately protects started blocks and
+    rejects newly backdated blocks using its current clock.
+    """
+    pending_ids = {task.id for task in tasks if task.status == "pending"}
+    if any(block.task_id not in pending_ids for block in blocks):
+        raise AppError(409, "inactive_task_block", "کار انجام‌شده یا لغوشده نباید دوباره در برنامه زمان بگیرد.")
+    request = PreviewRequest(**window.model_dump(include=set(PlanningWindow.model_fields)),
+                             previous_blocks=tuple(block.model_copy(update={"locked": True}) for block in blocks))
+    zone = ZoneInfo(timezone_name)
+    reference = datetime.combine(request.start_date, time(), zone)
+    planner = _Planner(request, tasks, preferences, zone, reference, 0)
+    try:
+        planner.preserve_previous()
+    except AppError as exc:
+        if exc.code in {"locked_block_conflict", "locked_duration_conflict"}:
+            raise AppError(409, "invalid_schedule_layout", "چیدمان با مدت کار، مهلت، وقت آزاد یا زمان کارهای دیگر سازگار نیست.") from exc
+        raise
+    missing = []
+    for task in sorted(planner.pending.values(), key=planner.order):
+        used = sum(int((block.end - block.start) / MINUTE) for block in blocks if block.task_id == task.id)
+        if used < task.duration_minutes:
+            missing.append(UnscheduledTask(task_id=task.id, title=task.title, remaining_minutes=task.duration_minutes - used,
+                                           reason="not_scheduled", message="این بخش از کار هنوز زمان‌بندی نشده است."))
+    return (TimeWindow(start=planner.start, end=planner.end), tuple(missing),
+            tuple(sorted(set(planner.tasks) - set(planner.pending), key=str)), planner.warnings())
