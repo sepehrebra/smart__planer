@@ -1,6 +1,6 @@
 """Validated contracts independent of HTTP, database drivers and AI providers."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
@@ -75,6 +75,8 @@ class TaskRecord(TaskCreate):
     version: Version = 1
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    recurrence_id: UUID | None = None
+    occurrence_date: date | None = None
 
     @field_validator("created_at", "updated_at")
     @classmethod
@@ -85,6 +87,8 @@ class TaskRecord(TaskCreate):
     def audit_order(self) -> Self:
         if self.updated_at < self.created_at:
             raise ValueError("updated_at cannot precede created_at.")
+        if (self.recurrence_id is None) != (self.occurrence_date is None):
+            raise ValueError("Recurrence ID and occurrence date must appear together.")
         return self
 
 

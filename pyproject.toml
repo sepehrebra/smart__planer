@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smartplanner-foundation"
-version = "0.4.0"
+version = "0.5.0"
 description = "SmartPlanner foundation API with PostgreSQL storage"
 requires-python = ">=3.12"
 dependencies = [

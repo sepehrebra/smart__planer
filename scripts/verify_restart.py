@@ -61,6 +61,25 @@ def main():
             assert response.status_code == 200, response.text
             state["saved_schedule"] = response.json()["schedule"]
             assert state["saved_schedule"]["can_redo"]
+            response = client.post("/api/v1/recurring-activities", json={
+                "client_request_id": str(uuid4()), "title": "تکرار پس از شروع دوباره",
+                "duration_minutes": 30, "frequency": "daily", "start_date": day})
+            assert response.status_code == 201, response.text
+            state["recurrence"] = response.json()
+            recurrence_path = f"/api/v1/recurring-activities/{state['recurrence']['id']}"
+            state["occurrence_request"] = {"expected_version": 1, "start_date": day, "days": 7}
+            response = client.post(recurrence_path + "/occurrences", json=state["occurrence_request"])
+            assert response.status_code == 200, response.text
+            occurrences = response.json()
+            assert occurrences["created_count"] == 7
+            response = client.patch(f"/api/v1/tasks/{occurrences['tasks'][0]['id']}", json={"expected_version": 1, "status": "completed"})
+            assert response.status_code == 200, response.text
+            response = client.delete(f"/api/v1/tasks/{occurrences['tasks'][1]['id']}", params={"expected_version": 1})
+            assert response.status_code == 204, response.text
+            response = client.post(recurrence_path + "/occurrences", json=state["occurrence_request"])
+            assert response.status_code == 200, response.text
+            state["occurrences"] = response.json()
+            assert state["occurrences"]["created_count"] == 0
             args.state_file.write_text(json.dumps(state), encoding="utf-8")
             print("Restart probe seeded; now restart the database.")
         else:
@@ -83,7 +102,17 @@ def main():
             assert response.json()["schedule"]["state"] == state["moved_state"]
             assert client.post(path + "/redo", json=redo).json()["replayed"]
             assert len(client.get(path + "/history").json()) == 2
-            print("PASS: account, task, saved schedule, undo/redo history and request receipts survived database/process restart.")
+            recurrence_path = f"/api/v1/recurring-activities/{state['recurrence']['id']}"
+            response = client.get(recurrence_path)
+            assert response.status_code == 200, response.text
+            assert response.json() == state["recurrence"]
+            response = client.post(recurrence_path + "/occurrences", json=state["occurrence_request"])
+            assert response.status_code == 200, response.text
+            assert response.json() == state["occurrences"]
+            assert len(response.json()["tasks"]) == 6
+            assert response.json()["tasks"][0]["status"] == "completed"
+            assert len(response.json()["deleted_dates"]) == 1
+            print("PASS: account, task, saved schedule, undo/redo history, request receipts and recurrence instances/tombstones survived database/process restart.")
 
 
 if __name__ == "__main__":

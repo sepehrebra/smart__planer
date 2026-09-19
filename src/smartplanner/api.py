@@ -23,6 +23,8 @@ from .errors import AppError
 from .migrate import LATEST_SCHEMA
 from .models import TaskCreate, TaskPatch, TaskRecord
 from .repository import Repository
+from .recurrence_models import OccurrenceRequest, OccurrenceResult, RecurrenceCreate, RecurrenceRecord, RecurrenceReplace
+from .recurrence_repository import RecurrenceRepository
 from .planning_models import PlanPreview, PreviewRequest
 from .scheduler import build_preview
 from .schedule_models import HistoryCommand, HistoryEntry, SavedSchedule, ScheduleCreate, ScheduleReplace, ScheduleResult, ScheduleSummary
@@ -35,7 +37,7 @@ TOKEN_FORMAT = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings.from_environment()
-    app = FastAPI(title="SmartPlanner", version="0.4.0", redoc_url=None)
+    app = FastAPI(title="SmartPlanner", version="0.5.0", redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[urlsplit(config.origin).hostname])
     passwords = Passwords()
     limiter = AuthLimiter(config.auth_requests_per_minute)
@@ -101,7 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/health")
     def health():
-        return {"status": "ok", "version": "0.4.0"}
+        return {"status": "ok", "version": "0.5.0"}
 
     @app.get("/api/v1/ready")
     def ready(repo: Repo):
@@ -172,6 +174,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.delete("/api/v1/tasks/{task_id}", status_code=204)
     def delete_task(task_id: UUID, user: User, repo: Repo, expected_version: int = Query(..., ge=1, le=2147483647)):
         repo.delete_task(user.id, task_id, expected_version)
+
+    @app.post("/api/v1/recurring-activities", response_model=RecurrenceRecord, status_code=201)
+    def create_recurrence(data: RecurrenceCreate, response: Response, user: User, repo: Repo):
+        result, replayed = RecurrenceRepository(repo.conn).create(user.id, data)
+        if replayed:
+            response.status_code = 200
+        return result
+
+    @app.get("/api/v1/recurring-activities", response_model=list[RecurrenceRecord])
+    def recurrences(user: User, repo: Repo, limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0, le=100000)):
+        return RecurrenceRepository(repo.conn).list(user.id, limit, offset)
+
+    @app.get("/api/v1/recurring-activities/{recurrence_id}", response_model=RecurrenceRecord)
+    def recurrence(recurrence_id: UUID, user: User, repo: Repo):
+        return RecurrenceRepository(repo.conn).get(user.id, recurrence_id)
+
+    @app.put("/api/v1/recurring-activities/{recurrence_id}", response_model=RecurrenceRecord)
+    def replace_recurrence(recurrence_id: UUID, data: RecurrenceReplace, user: User, repo: Repo):
+        return RecurrenceRepository(repo.conn).replace(user.id, recurrence_id, data)
+
+    @app.delete("/api/v1/recurring-activities/{recurrence_id}", status_code=204)
+    def delete_recurrence(recurrence_id: UUID, user: User, repo: Repo, expected_version: int = Query(..., ge=1, le=2147483647)):
+        RecurrenceRepository(repo.conn).delete(user.id, recurrence_id, expected_version)
+
+    @app.post("/api/v1/recurring-activities/{recurrence_id}/occurrences", response_model=OccurrenceResult)
+    def recurrence_occurrences(recurrence_id: UUID, data: OccurrenceRequest, user: User, repo: Repo):
+        return RecurrenceRepository(repo.conn).materialize(user.id, recurrence_id, data)
 
     @app.post("/api/v1/schedules/preview", response_model=PlanPreview)
     def preview_schedule(data: PreviewRequest, user: User, repo: Repo):
