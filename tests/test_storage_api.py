@@ -418,7 +418,7 @@ class StorageApiTests(unittest.TestCase):
             with connect(DB_URL) as writer:
                 with writer.transaction():
                     writer.execute("UPDATE tasks SET duration_minutes=90, version=version+1 WHERE id=%s", (UUID(task["id"]),))
-                    writer.execute("UPDATE user_preferences SET focus_block_minutes=30, version=version+1 WHERE user_id=%s", (owner,))
+                    writer.execute("UPDATE user_preferences SET focus_block_minutes=60, version=version+1 WHERE user_id=%s", (owner,))
             return before
         with patch.object(Repository, "get_preferences", edit_after_snapshot):
             response = self.a.post("/api/v1/schedules/preview", json=self.preview_request(task))
