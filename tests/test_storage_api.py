@@ -3,10 +3,12 @@
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from unittest.mock import patch
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 DB_URL = os.getenv("SMARTPLANNER_TEST_DATABASE_URL")
 FLAVOR = os.getenv("SMARTPLANNER_TEST_DB_FLAVOR", "native")
@@ -21,6 +23,7 @@ if DB_URL:
     from smartplanner.migrate import migrate
     from smartplanner.models import TaskCreate, TaskPatch
     from smartplanner.repository import Repository
+    from smartplanner.scheduler import build_preview
     from smartplanner.settings import Settings
     from smartplanner.task_changes import prepare_task_change
 
@@ -68,6 +71,13 @@ class StorageApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         client.headers["X-CSRF-Token"] = response.json()["csrf_token"]
         return client, response
+
+    def preview_request(self, *tasks, **changes):
+        tomorrow = (datetime.now(ZoneInfo("Asia/Tehran")) + timedelta(days=1)).date().isoformat()
+        data = {"start_date": tomorrow, "task_ids": [task["id"] for task in tasks],
+                "availability": [{"start": f"{tomorrow}T09:00:00+03:30", "end": f"{tomorrow}T18:00:00+03:30"}]}
+        data.update(changes)
+        return data
 
     def test_01_health_schema_and_migration_replay(self):
         self.assertEqual(self.a.get("/api/v1/health").status_code, 200)
@@ -294,6 +304,155 @@ class StorageApiTests(unittest.TestCase):
                 with conn.transaction():
                     conn.execute("SELECT 1 / %s", (0,))
             self.assertEqual(conn.execute("SELECT 1 AS n").fetchone()["n"], 1)
+
+    def test_28_preview_uses_saved_inputs_without_changing_them(self):
+        _, task = self.new_task()
+        preferences = self.a.get("/api/v1/me/preferences").json()
+        data = self.preview_request(task)
+        response = self.a.post("/api/v1/schedules/preview", json=data)
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertFalse(result["persisted"])
+        self.assertEqual(result["timezone"], "Asia/Tehran")
+        self.assertEqual(result["task_versions"], {task["id"]: 1})
+        self.assertEqual(result["preference_version"], preferences["version"])
+        self.assertEqual(len(result["blocks"]), 1)
+        placed = result["blocks"][0]
+        self.assertEqual(placed["task_id"], task["id"])
+        self.assertEqual(datetime.fromisoformat(placed["end"]) - datetime.fromisoformat(placed["start"]), timedelta(hours=1))
+        self.assertEqual(result["unscheduled"], [])
+        self.assertEqual(self.a.get(f"/api/v1/tasks/{task['id']}").json(), task)
+        self.assertEqual(self.a.get("/api/v1/me/preferences").json(), preferences)
+        repeated = self.a.post("/api/v1/schedules/preview", json=data).json()
+        self.assertEqual(repeated["blocks"], result["blocks"])
+
+    def test_29_empty_selection_still_returns_fixed_events(self):
+        data = self.preview_request()
+        data["fixed_events"] = [{"title": "دانشگاه", **data["availability"][0]}]
+        response = self.a.post("/api/v1/schedules/preview", json=data)
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(result["blocks"], [])
+        self.assertEqual(result["task_versions"], {})
+        self.assertEqual(result["fixed_events"][0]["title"], "دانشگاه")
+
+    def test_30_foreign_deleted_and_unknown_tasks_have_same_preview_error(self):
+        _, own = self.new_task()
+        _, deleted = self.new_task()
+        self.assertEqual(self.a.delete(f"/api/v1/tasks/{deleted['id']}", params={"expected_version": 1}).status_code, 204)
+        foreign = self.b.post("/api/v1/tasks", json={"client_request_id": str(uuid4()), "title": "private", "duration_minutes": 30}).json()
+        failures = []
+        for inaccessible in [foreign, deleted, {"id": str(uuid4())}]:
+            response = self.a.post("/api/v1/schedules/preview", json=self.preview_request(own, inaccessible))
+            self.assertEqual(response.status_code, 404, response.text)
+            failures.append(response.json())
+            self.assertNotIn("private", response.text)
+        self.assertEqual(failures[0], failures[1])
+        self.assertEqual(failures[0], failures[2])
+
+    def test_31_preview_requires_session_csrf_and_valid_owner_contract(self):
+        data = self.preview_request()
+        with TestClient(self.app, base_url=ORIGIN) as client:
+            self.assertEqual(client.post("/api/v1/schedules/preview", json=data).status_code, 401)
+        self.assertEqual(self.a.post("/api/v1/schedules/preview", json=data, headers={"X-CSRF-Token": "wrong"}).status_code, 403)
+        self.assertEqual(self.a.post("/api/v1/schedules/preview", json=data, headers={"Origin": "https://other.example"}).status_code, 403)
+        for injected in [{"user_id": self.owner_b}, {"timezone": "UTC"}]:
+            response = self.a.post("/api/v1/schedules/preview", json={**data, **injected})
+            self.assertEqual(response.status_code, 422, response.text)
+
+    def test_32_conflicting_locks_are_explicit_and_do_not_leak_capacity(self):
+        _, task = self.new_task()
+        data = self.preview_request(task)
+        start = data["availability"][0]["start"]
+        end = (datetime.fromisoformat(start) + timedelta(hours=1)).isoformat()
+        data["previous_blocks"] = [{"task_id": task["id"], "start": start, "end": end, "locked": True}]
+        data["fixed_events"] = [{"title": "class", "start": start, "end": end}]
+        for _ in range(3):
+            response = self.a.post("/api/v1/schedules/preview", json=data)
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(response.json()["code"], "locked_block_conflict")
+        data["fixed_events"] = []
+        valid = self.a.post("/api/v1/schedules/preview", json=data)
+        self.assertEqual(valid.status_code, 200, valid.text)
+        self.assertTrue(valid.json()["blocks"][0]["locked"])
+        self.assertEqual(self.a.get(f"/api/v1/tasks/{task['id']}").json()["version"], 1)
+
+    def test_33_preview_reads_current_versions_and_omits_completed_tasks(self):
+        _, task = self.new_task()
+        path = f"/api/v1/tasks/{task['id']}"
+        self.assertEqual(self.a.patch(path, json={"expected_version": 1, "duration_minutes": 90}).status_code, 200)
+        preferences = self.a.get("/api/v1/me/preferences").json()
+        changed = self.a.put("/api/v1/me/preferences", json={"expected_version": preferences["version"], "values": {"workload": "intense", "break_minutes": 0}})
+        self.assertEqual(changed.status_code, 200, changed.text)
+        response = self.a.post("/api/v1/schedules/preview", json=self.preview_request(task))
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(result["task_versions"], {task["id"]: 2})
+        self.assertEqual(result["preference_version"], changed.json()["version"])
+        placed = result["blocks"][0]
+        self.assertEqual(datetime.fromisoformat(placed["end"]) - datetime.fromisoformat(placed["start"]), timedelta(minutes=90))
+        self.assertEqual(self.a.patch(path, json={"expected_version": 2, "status": "completed"}).status_code, 200)
+        result = self.a.post("/api/v1/schedules/preview", json=self.preview_request(task, previous_blocks=[{**placed, "locked": True}])).json()
+        self.assertEqual(result["blocks"], [])
+        self.assertEqual(result["ignored_task_ids"], [task["id"]])
+        self.assertEqual(result["task_versions"], {task["id"]: 3})
+
+    def test_34_unplaced_work_is_reported_with_duration_and_reason(self):
+        _, task = self.new_task(duration_minutes=90)
+        response = self.a.post("/api/v1/schedules/preview", json=self.preview_request(task, availability=[]))
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(result["blocks"], [])
+        missing = result["unscheduled"][0]
+        self.assertEqual((missing["task_id"], missing["remaining_minutes"], missing["reason"]), (task["id"], 90, "no_slot_found"))
+        self.assertTrue(missing["message"])
+
+    @unittest.skipUnless(FLAVOR == "native", "Snapshot visibility across connections requires native PostgreSQL.")
+    def test_35_task_and_preferences_come_from_one_snapshot_during_edit(self):
+        _, task = self.new_task()
+        preferences = self.a.get("/api/v1/me/preferences").json()
+        original = Repository.get_preferences
+        def edit_after_snapshot(repo, owner):
+            before = original(repo, owner)
+            # Commit a paired edit between the two reads in planning_inputs.
+            with connect(DB_URL) as writer:
+                with writer.transaction():
+                    writer.execute("UPDATE tasks SET duration_minutes=90, version=version+1 WHERE id=%s", (UUID(task["id"]),))
+                    writer.execute("UPDATE user_preferences SET focus_block_minutes=60, version=version+1 WHERE user_id=%s", (owner,))
+            return before
+        with patch.object(Repository, "get_preferences", edit_after_snapshot):
+            response = self.a.post("/api/v1/schedules/preview", json=self.preview_request(task))
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(result["task_versions"], {task["id"]: 1})
+        self.assertEqual(result["preference_version"], preferences["version"])
+        self.assertEqual(self.a.get(f"/api/v1/tasks/{task['id']}").json()["version"], 2)
+        self.assertEqual(self.a.get("/api/v1/me/preferences").json()["version"], preferences["version"] + 1)
+
+    @unittest.skipUnless(FLAVOR == "native", "Concurrent API connections require native PostgreSQL.")
+    def test_36_busy_planner_rejects_extra_work_and_recovers(self):
+        entered, release = Barrier(3), Event()
+        data = self.preview_request()
+        def held_preview(*args, **kwargs):
+            entered.wait(timeout=10)
+            if not release.wait(timeout=10):
+                raise TimeoutError("Test did not release held previews.")
+            return build_preview(*args, **kwargs)
+        # Separate clients share the application and the same authenticated session.
+        with TestClient(self.app, base_url=ORIGIN, cookies=self.a.cookies, headers=dict(self.a.headers)) as one, \
+             TestClient(self.app, base_url=ORIGIN, cookies=self.a.cookies, headers=dict(self.a.headers)) as two:
+            with patch("smartplanner.api.build_preview", held_preview), ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(client.post, "/api/v1/schedules/preview", json=data) for client in (one, two)]
+                try:
+                    entered.wait(timeout=10)
+                    rejected = self.a.post("/api/v1/schedules/preview", json=data)
+                    self.assertEqual(rejected.status_code, 429, rejected.text)
+                    self.assertEqual(rejected.json()["code"], "planner_busy")
+                    self.assertIn("retry-after", rejected.headers)
+                finally:
+                    release.set()
+                self.assertEqual([future.result(timeout=10).status_code for future in futures], [200, 200])
+        self.assertEqual(self.a.post("/api/v1/schedules/preview", json=data).status_code, 200)
 
 
 if __name__ == "__main__":

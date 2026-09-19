@@ -1,7 +1,9 @@
-"""Phase 1 HTTP API. Start with uvicorn smartplanner.api:create_app --factory."""
+"""HTTP API. Start with uvicorn smartplanner.api:create_app --factory."""
 
 import re
 import secrets
+from datetime import datetime, timezone
+from threading import BoundedSemaphore
 from typing import Annotated
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -21,6 +23,8 @@ from .errors import AppError
 from .migrate import LATEST_SCHEMA
 from .models import TaskCreate, TaskPatch, TaskRecord
 from .repository import Repository
+from .planning_models import PlanPreview, PreviewRequest
+from .scheduler import build_preview
 from .settings import Settings
 
 COOKIE_NAME = "smartplanner_session"
@@ -29,10 +33,11 @@ TOKEN_FORMAT = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings.from_environment()
-    app = FastAPI(title="SmartPlanner", version="0.2.0", redoc_url=None)
+    app = FastAPI(title="SmartPlanner", version="0.3.0", redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[urlsplit(config.origin).hostname])
     passwords = Passwords()
     limiter = AuthLimiter(config.auth_requests_per_minute)
+    planning_slots = BoundedSemaphore(2)
 
     @app.middleware("http")
     async def origin_and_response_headers(request: Request, call_next):
@@ -42,7 +47,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return JSONResponse(status_code=403, content={"code": "origin_rejected", "message": "مبدأ درخواست معتبر نیست."})
             # Reject oversized declared bodies before decoding/hashing user input.
             length = request.headers.get("content-length")
-            if length is not None and (not length.isdigit() or int(length) > 32_768):
+            body_limit = 131_072 if request.url.path == "/api/v1/schedules/preview" else 32_768
+            if length is not None and (not length.isdigit() or int(length) > body_limit):
                 return JSONResponse(status_code=413, content={"code": "request_too_large", "message": "حجم درخواست زیاد است."})
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
@@ -93,7 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/health")
     def health():
-        return {"status": "ok", "version": "0.2.0"}
+        return {"status": "ok", "version": "0.3.0"}
 
     @app.get("/api/v1/ready")
     def ready(repo: Repo):
@@ -164,5 +170,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.delete("/api/v1/tasks/{task_id}", status_code=204)
     def delete_task(task_id: UUID, user: User, repo: Repo, expected_version: int = Query(..., ge=1, le=2147483647)):
         repo.delete_task(user.id, task_id, expected_version)
+
+    @app.post("/api/v1/schedules/preview", response_model=PlanPreview)
+    def preview_schedule(data: PreviewRequest, user: User, repo: Repo):
+        if not planning_slots.acquire(blocking=False):
+            raise AppError(429, "planner_busy", "برنامه‌ریز مشغول است؛ کمی بعد دوباره تلاش کنید.")
+        try:
+            tasks, preferences = repo.planning_inputs(user.id, data.task_ids)
+            return build_preview(data, tasks, preferences, timezone_name=user.timezone,
+                                 now=datetime.now(timezone.utc), preference_version=preferences.version)
+        finally:
+            planning_slots.release()
 
     return app
