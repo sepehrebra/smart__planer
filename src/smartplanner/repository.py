@@ -17,7 +17,8 @@ from .task_changes import StaleTaskVersion, prepare_task_change
 
 TASK_COLUMNS = (
     "id, user_id, client_request_id, title, description, duration_minutes, priority, "
-    "status, splittable, preferred_period, earliest_start, deadline, version, created_at, updated_at"
+    "status, splittable, preferred_period, earliest_start, deadline, version, created_at, updated_at, "
+    "recurrence_id, occurrence_date"
 )
 USER_COLUMNS = "id, email, timezone, created_at"
 

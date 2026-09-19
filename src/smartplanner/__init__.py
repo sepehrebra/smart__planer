@@ -1,1 +1,1 @@
-"""SmartPlanner: authenticated task storage and deterministic schedule previews."""
+"""SmartPlanner: authenticated tasks, recurrences and durable daily/weekly plans."""
