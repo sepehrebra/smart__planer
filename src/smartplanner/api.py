@@ -2,11 +2,12 @@
 
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from threading import BoundedSemaphore
 from typing import Annotated
 from urllib.parse import urlsplit
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import psycopg
 from fastapi import Depends, FastAPI, Query, Request, Response
@@ -14,18 +15,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .accounts import (
-    AuthLimiter, Credentials, Passwords, PreferencePut, PreferenceRecord,
-    Registration, SessionView, UserView, csrf_for_token,
-)
+from .accounts import (AuthLimiter, Credentials, Passwords, PreferencePut, PreferenceRecord, Registration, SessionView, UserView, csrf_for_token)
 from .database import connect
 from .errors import AppError
+from .fixed_event_models import FixedEventCreate, FixedEventRecord, FixedEventReplace
+from .fixed_event_repository import FixedEventRepository
 from .migrate import LATEST_SCHEMA
 from .models import TaskCreate, TaskPatch, TaskRecord
 from .repository import Repository
 from .recurrence_models import OccurrenceRequest, OccurrenceResult, RecurrenceCreate, RecurrenceRecord, RecurrenceReplace
 from .recurrence_repository import RecurrenceRepository
-from .planning_models import PlanPreview, PreviewRequest
+from .planning_models import FixedEvent, PlanPreview, PreviewRequest
 from .scheduler import build_preview
 from .schedule_models import HistoryCommand, HistoryEntry, SavedSchedule, ScheduleCreate, ScheduleReplace, ScheduleResult, ScheduleSummary
 from .schedule_repository import ScheduleRepository
@@ -37,7 +37,7 @@ TOKEN_FORMAT = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings.from_environment()
-    app = FastAPI(title="SmartPlanner", version="0.5.0", redoc_url=None)
+    app = FastAPI(title="SmartPlanner", version="0.6.0", redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[urlsplit(config.origin).hostname])
     passwords = Passwords()
     limiter = AuthLimiter(config.auth_requests_per_minute)
@@ -49,7 +49,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             origin = request.headers.get("origin")
             if origin is not None and origin != config.origin:
                 return JSONResponse(status_code=403, content={"code": "origin_rejected", "message": "مبدأ درخواست معتبر نیست."})
-            # Reject oversized declared bodies before decoding/hashing user input.
             length = request.headers.get("content-length")
             body_limit = 131_072 if request.url.path.startswith("/api/v1/schedules") else 32_768
             if length is not None and (not length.isdigit() or int(length) > body_limit):
@@ -66,7 +65,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError):
-        # FastAPI's default validation response includes input values, including bad passwords.
         errors = [{"field": list(error["loc"]), "type": error["type"]} for error in exc.errors()]
         return JSONResponse(status_code=422, content={"code": "invalid_input", "message": "اطلاعات ورودی معتبر نیست.", "errors": errors})
 
@@ -98,12 +96,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     User = Annotated[UserView, Depends(current_user)]
 
     def limit_auth(request: Request):
-        # Do not trust an arbitrary X-Forwarded-For header from the public client.
         limiter.check(request.client.host if request.client else "unknown")
 
     @app.get("/api/v1/health")
     def health():
-        return {"status": "ok", "version": "0.5.0"}
+        return {"status": "ok", "version": "0.6.0"}
 
     @app.get("/api/v1/ready")
     def ready(repo: Repo):
@@ -124,10 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not passwords.verify(data.password.get_secret_value(), account["password_hash"] if account else None):
             raise AppError(401, "invalid_credentials", "ایمیل یا رمز درست نیست.")
         token = repo.create_session(account["id"], config.session_hours)
-        response.set_cookie(
-            COOKIE_NAME, token, httponly=True, secure=config.cookie_secure,
-            samesite="lax", max_age=config.session_hours * 3600, path="/",
-        )
+        response.set_cookie(COOKIE_NAME, token, httponly=True, secure=config.cookie_secure, samesite="lax", max_age=config.session_hours * 3600, path="/")
         user = UserView.model_validate({key: value for key, value in account.items() if key != "password_hash"})
         return SessionView(user=user, csrf_token=csrf_for_token(token))
 
@@ -175,6 +169,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def delete_task(task_id: UUID, user: User, repo: Repo, expected_version: int = Query(..., ge=1, le=2147483647)):
         repo.delete_task(user.id, task_id, expected_version)
 
+    @app.post("/api/v1/fixed-events", response_model=FixedEventRecord, status_code=201)
+    def create_fixed_event(data: FixedEventCreate, user: User, repo: Repo):
+        return FixedEventRepository(repo.conn).create(user.id, data)
+
+    @app.get("/api/v1/fixed-events", response_model=list[FixedEventRecord])
+    def fixed_events(user: User, repo: Repo, start: datetime | None = None, end: datetime | None = None,
+                     limit: int = Query(100, ge=1, le=100), offset: int = Query(0, ge=0, le=100000)):
+        if start is not None and (start.tzinfo is None or start.utcoffset() is None):
+            raise AppError(422, "invalid_time_range", "زمان شروع باید منطقهٔ زمانی مشخص داشته باشد.")
+        if end is not None and (end.tzinfo is None or end.utcoffset() is None):
+            raise AppError(422, "invalid_time_range", "زمان پایان باید منطقهٔ زمانی مشخص داشته باشد.")
+        if start is not None and end is not None and end <= start:
+            raise AppError(422, "invalid_time_range", "پایان بازه باید پس از شروع آن باشد.")
+        return FixedEventRepository(repo.conn).list(user.id, start, end, limit, offset)
+
+    @app.get("/api/v1/fixed-events/{event_id}", response_model=FixedEventRecord)
+    def fixed_event(event_id: UUID, user: User, repo: Repo):
+        return FixedEventRepository(repo.conn).get(user.id, event_id)
+
+    @app.put("/api/v1/fixed-events/{event_id}", response_model=FixedEventRecord)
+    def replace_fixed_event(event_id: UUID, data: FixedEventReplace, user: User, repo: Repo):
+        return FixedEventRepository(repo.conn).replace(user.id, event_id, data)
+
+    @app.delete("/api/v1/fixed-events/{event_id}", status_code=204)
+    def delete_fixed_event(event_id: UUID, user: User, repo: Repo, expected_version: int = Query(..., ge=1, le=2147483647)):
+        FixedEventRepository(repo.conn).delete(user.id, event_id, expected_version)
+
     @app.post("/api/v1/recurring-activities", response_model=RecurrenceRecord, status_code=201)
     def create_recurrence(data: RecurrenceCreate, response: Response, user: User, repo: Repo):
         result, replayed = RecurrenceRepository(repo.conn).create(user.id, data)
@@ -208,7 +229,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise AppError(429, "planner_busy", "برنامه‌ریز مشغول است؛ کمی بعد دوباره تلاش کنید.")
         try:
             tasks, preferences = repo.planning_inputs(user.id, data.task_ids)
-            return build_preview(data, tasks, preferences, timezone_name=user.timezone,
+            zone = ZoneInfo(user.timezone)
+            horizon_start = datetime.combine(data.start_date, time(), zone).astimezone(timezone.utc)
+            horizon_end = datetime.combine(data.start_date + timedelta(days=data.days), time(), zone).astimezone(timezone.utc)
+            stored = FixedEventRepository(repo.conn).planning_events(user.id, horizon_start, horizon_end)
+            stored_events = tuple(FixedEvent(title=event.title, start=event.start, end=event.end) for event in stored)
+            if len(stored_events) + len(data.fixed_events) > 100:
+                raise AppError(422, "too_many_fixed_events", "تعداد تعهدهای ثابت در این بازه بیش از حد مجاز است.")
+            merged = data.model_copy(update={"fixed_events": stored_events + data.fixed_events})
+            return build_preview(merged, tasks, preferences, timezone_name=user.timezone,
                                  now=datetime.now(timezone.utc), preference_version=preferences.version)
         finally:
             planning_slots.release()
