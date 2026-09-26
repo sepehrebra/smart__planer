@@ -27,7 +27,7 @@ from .recurrence_models import OccurrenceRequest, OccurrenceResult, RecurrenceCr
 from .recurrence_repository import RecurrenceRepository
 from .planning_models import FixedEvent, PlanPreview, PreviewRequest
 from .scheduler import build_preview
-from .schedule_models import HistoryCommand, HistoryEntry, SavedSchedule, ScheduleCreate, ScheduleReplace, ScheduleResult, ScheduleSummary
+from .schedule_models import ReplanRequest, ReplanResult, HistoryCommand, HistoryEntry, SavedSchedule, ScheduleCreate, ScheduleReplace, ScheduleResult, ScheduleSummary
 from .schedule_repository import ScheduleRepository
 from .settings import Settings
 
@@ -260,6 +260,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.put("/api/v1/schedules/{schedule_id}", response_model=ScheduleResult)
     def edit_schedule(schedule_id: UUID, data: ScheduleReplace, user: User, repo: Repo):
         return ScheduleRepository(repo.conn).replace(user.id, schedule_id, data)
+
+    @app.post("/api/v1/schedules/{schedule_id}/replan", response_model=ReplanResult)
+    def replan_schedule(schedule_id: UUID, data: ReplanRequest, user: User, repo: Repo):
+        if not planning_slots.acquire(blocking=False):
+            raise AppError(429, "planner_busy", "برنامه‌ریز مشغول است؛ کمی بعد دوباره تلاش کنید.")
+        try:
+            return ScheduleRepository(repo.conn).replan(user.id, schedule_id, data)
+        finally:
+            planning_slots.release()
 
     @app.get("/api/v1/schedules/{schedule_id}/history", response_model=list[HistoryEntry])
     def schedule_history(schedule_id: UUID, user: User, repo: Repo):

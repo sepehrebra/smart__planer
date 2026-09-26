@@ -133,3 +133,11 @@
 - حذف کار نرم است؛ سیاست نگهداری و حذف قطعی حساب/کار هنوز تصمیم نهایی ندارد.
 - آزمون بار اجرا نشده و ظرفیت یا آماده‌بودن تجاری ادعا نمی‌شود.
 - Starlette در آزمون با HTTPX هشدار مهاجرت آینده به HTTPX2 می‌دهد؛ اجرای آزمون فعلی موفق است و این هشدار خطای برنامه نیست.
+
+## 2026-09-26 — Step 8 saved-schedule replanning preview
+
+Added POST /api/v1/schedules/{id}/replan, coherent read-only source snapshot,
+existing-block stability, explicit ad-hoc event replacement, and existing PUT handoff.
+Local verification: 78 non-database tests passed (including 6 new replan tests).
+PostgreSQL integration tests require CI; no native PostgreSQL is installed locally.
+See SmartPlanner_Step_08.md for API and known fixed-event/history consistency limits.

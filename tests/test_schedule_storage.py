@@ -105,6 +105,33 @@ class ScheduleStorageTests(unittest.TestCase):
             return tuple(conn.execute(f"SELECT count(*) AS n FROM {table} WHERE schedule_id=%s", (UUID(saved["id"]),)).fetchone()["n"]
                          for table in ("schedule_versions", "schedule_commands", "schedule_allocations"))
 
+    def test_replan_preview_save_and_undo(self):
+        data, saved = self.save()
+        event = self.a.post('/api/v1/fixed-events', json={
+            'title': 'کلاس', 'start': self.at(9), 'end': self.at(10)})
+        self.assertEqual(event.status_code, 201, event.text)
+        url = f"/api/v1/schedules/{saved['id']}/replan"
+        body = {'expected_version': saved['version'], 'fixed_events': []}
+        self.assertEqual(self.b.post(url, json=body).status_code, 404)
+        response = self.a.post(url, json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+        preview = response.json()['preview']
+        self.assertNotEqual(preview['blocks'], saved['state']['content']['blocks'])
+        self.assertEqual(self.get(saved)['version'], saved['version'])
+        edit = self.edit_body(saved)
+        edit['content']['blocks'] = preview['blocks']
+        edit['content']['fixed_events'] = preview['fixed_events']
+        edit['task_versions'] = preview['task_versions']
+        edit['preference_version'] = preview['preference_version']
+        applied = self.edit(saved, edit)
+        self.assertEqual(applied.status_code, 200, applied.text)
+        self.assertEqual(self.a.post(url, json=body).status_code, 409)
+        self.assertEqual(self.get(saved)['state']['content']['blocks'], preview['blocks'])
+        # Existing history works with the newly saved preview.
+        undo = self.travel(applied.json()['schedule'], 'undo')
+        self.assertEqual(undo.status_code, 200, undo.text)
+        self.assertEqual(undo.json()['schedule']['state']['content']['blocks'], saved['state']['content']['blocks'])
+
     def test_01_save_preview_and_read_from_new_app_without_drift(self):
         data = self.draft()
         inputs = {key: value for key, value in data["content"].items() if key != "blocks"}
