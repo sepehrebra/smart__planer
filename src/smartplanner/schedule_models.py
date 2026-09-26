@@ -53,11 +53,18 @@ class SavedState(Contract):
     warnings: tuple[str, ...]
 
 
+class FixedEventConflict(TimeWindow):
+    fixed_event_id: UUID
+    title: Title
+    task_ids: tuple[UUID, ...]
+
+
 class SourceStatus(Contract):
     stale: bool
     changed_task_ids: tuple[UUID, ...]
     missing_task_ids: tuple[UUID, ...]
     preferences_changed: bool
+    fixed_event_conflicts: tuple[FixedEventConflict, ...] = ()
 
 
 class SavedSchedule(Contract):
