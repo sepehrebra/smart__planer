@@ -532,6 +532,123 @@ class ScheduleStorageTests(unittest.TestCase):
                     conn.execute("UPDATE schedules SET current_revision=999 WHERE id=%s", (UUID(saved["id"]),))
         self.assertEqual(self.get(saved), saved)
 
+    def fixed_event(self, hour=9, client=None, **changes):
+        response = (client or self.a).post("/api/v1/fixed-events", json={
+            "title": "Class", "start": self.at(hour), "end": self.at(hour + 1), **changes})
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()
+
+    def test_32_save_cannot_omit_current_fixed_event(self):
+        data = self.draft()
+        self.fixed_event()
+        response = self.a.post("/api/v1/schedules", json=data)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["code"], "stored_fixed_event_conflict")
+        # A rejected command did not consume its request ID or leave a schedule.
+        data["content"]["blocks"][0].update(start=self.at(11), end=self.at(12))
+        self.save(data)
+
+    def test_33_new_event_flags_saved_layout_and_replay_without_mutation(self):
+        data, saved = self.save()
+        event = self.fixed_event()
+        current = self.get(saved)
+        self.assertTrue(current["sources"]["stale"])
+        conflict = current["sources"]["fixed_event_conflicts"][0]
+        self.assertEqual(conflict["fixed_event_id"], event["id"])
+        self.assertEqual(conflict["task_ids"], data["content"]["task_ids"])
+        self.assertEqual(current["state"], saved["state"])
+        self.assertEqual(current["version"], saved["version"])
+        replay = self.a.post("/api/v1/schedules", json=data)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertTrue(replay.json()["replayed"])
+        self.assertTrue(replay.json()["schedule"]["sources"]["stale"])
+        self.assertEqual(self.counts(saved), (1, 1, 1))
+        self.assertEqual(self.a.delete(f"/api/v1/fixed-events/{event['id']}?expected_version=1").status_code, 204)
+        self.assertFalse(self.get(saved)["sources"]["stale"])
+
+    def test_34_edit_rejection_is_atomic_and_can_be_repaired(self):
+        _, saved = self.save()
+        self.fixed_event(11)
+        before = self.counts(saved)
+        bad = self.edit(saved, self.moved(saved))
+        self.assertEqual(bad.status_code, 409, bad.text)
+        self.assertEqual(self.counts(saved), before)
+        self.assertEqual(self.get(saved), saved)
+        good = self.edit(saved, self.moved(saved, hour=12))
+        self.assertEqual(good.status_code, 200, good.text)
+
+    def test_35_undo_and_redo_validate_live_events(self):
+        _, original = self.save()
+        moved = self.edit(original, self.moved(original)).json()["schedule"]
+        event = self.fixed_event(9)
+        before = self.counts(moved)
+        rejected = self.travel(moved, "undo")
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        self.assertEqual(self.counts(moved), before)
+        self.assertEqual(self.get(moved), moved)
+        self.a.delete(f"/api/v1/fixed-events/{event['id']}?expected_version=1")
+        undone = self.travel(moved, "undo").json()["schedule"]
+        self.fixed_event(11)
+        rejected = self.travel(undone, "redo")
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        self.assertEqual(self.get(undone), undone)
+
+    def test_36_half_open_boundaries_and_owner_isolation(self):
+        self.fixed_event(9, client=self.b)
+        self.fixed_event(8)
+        self.fixed_event(10)
+        _, saved = self.save()
+        self.assertFalse(saved["sources"]["stale"])
+        self.assertEqual(saved["sources"]["fixed_event_conflicts"], [])
+
+    def test_37_event_edit_and_cross_midnight_are_detected(self):
+        _, saved = self.save()
+        event = self.fixed_event(11)
+        response = self.a.put(f"/api/v1/fixed-events/{event['id']}", json={
+            "title": "Overnight class", "start": self.at(23, day=self.day - timedelta(days=1)),
+            "end": self.at(10), "expected_version": 1})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(self.get(saved)["sources"]["stale"])
+        self.assertEqual(self.edit(saved, self.edit_body(saved)).status_code, 409)
+
+    def test_38_more_than_100_events_never_silently_ignored(self):
+        data = self.draft()
+        with connect(DB_URL) as conn:
+            with conn.transaction():
+                for i in range(100):
+                    conn.execute("INSERT INTO fixed_events(id,user_id,title,starts_at,ends_at) VALUES (%s,%s,%s,%s,%s)",
+                                 (uuid4(), self.owner, "Early", self.at(0), self.at(1)))
+        self.fixed_event(9)
+        response = self.a.post("/api/v1/schedules", json=data)
+        self.assertEqual(response.status_code, 409, response.text)
+        preview = {k: v for k, v in data["content"].items() if k != "blocks"}
+        response = self.a.post("/api/v1/schedules/preview", json=preview)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(response.json()["code"], "too_many_fixed_events")
+
+    @unittest.skipUnless(FLAVOR == "native", "Real owner-lock serialization requires PostgreSQL.")
+    def test_39_save_waits_for_event_transaction_and_sees_committed_event(self):
+        from smartplanner.fixed_event_repository import FixedEventRepository
+        data = self.draft()
+        started = Event()
+        def save_after_event_lock():
+            with connect(DB_URL) as conn:
+                conn.execute("SET default_transaction_isolation = 'repeatable read'")
+                started.set()
+                return ScheduleRepository(conn).create(self.owner, ScheduleCreate.model_validate(data))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with connect(DB_URL) as conn:
+                with FixedEventRepository(conn)._write(self.owner):
+                    conn.execute("INSERT INTO fixed_events(id,user_id,title,starts_at,ends_at) VALUES (%s,%s,%s,%s,%s)",
+                                 (uuid4(), self.owner, "Concurrent class", self.at(9), self.at(10)))
+                    future = pool.submit(save_after_event_lock)
+                    self.assertTrue(started.wait(2))
+                    with self.assertRaises(TimeoutError):
+                        future.result(timeout=0.15)
+                with self.assertRaises(AppError) as caught:
+                    future.result(timeout=5)
+                self.assertEqual(caught.exception.code, "stored_fixed_event_conflict")
+
 
 if __name__ == "__main__":
     unittest.main()
