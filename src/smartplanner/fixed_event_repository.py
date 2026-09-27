@@ -1,5 +1,6 @@
 """PostgreSQL persistence for user-owned fixed commitments."""
 
+from contextlib import contextmanager
 from uuid import uuid4
 
 from .errors import AppError
@@ -10,6 +11,36 @@ class FixedEventRepository:
     def __init__(self, conn):
         self.conn = conn
 
+    @contextmanager
+    def _write(self, owner):
+        # Use the same owner lock as schedule writes, including under a
+        # connection whose default isolation level is Repeatable Read.
+        with self.conn.transaction():
+            self.conn.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE")
+            row = self.conn.execute(
+                "SELECT id FROM users WHERE id=%s FOR NO KEY UPDATE", (owner,),
+            ).fetchone()
+            if row is None:
+                raise AppError(404, "not_found", "حساب پیدا نشد.")
+            yield
+
+    def layout_conflicts(self, owner, blocks):
+        if not blocks:
+            return ()
+        # Query every overlapping commitment, independently of list pagination.
+        rows = self.conn.execute(
+            """SELECT e.id AS fixed_event_id, e.title, e.starts_at AS start,
+                      e.ends_at AS end, array_agg(DISTINCT b.task_id ORDER BY b.task_id) AS task_ids
+               FROM fixed_events e
+               JOIN unnest(%s::uuid[], %s::timestamptz[], %s::timestamptz[])
+                    AS b(task_id, starts_at, ends_at)
+                 ON e.starts_at < b.ends_at AND e.ends_at > b.starts_at
+               WHERE e.user_id=%s
+               GROUP BY e.id ORDER BY e.starts_at, e.id""",
+            ([b.task_id for b in blocks], [b.start for b in blocks], [b.end for b in blocks], owner),
+        ).fetchall()
+        return tuple(rows)
+
     @staticmethod
     def _record(row):
         return FixedEventRecord.model_validate({
@@ -18,13 +49,14 @@ class FixedEventRepository:
         })
 
     def create(self, user_id, data: FixedEventCreate):
-        row = self.conn.execute(
-            """INSERT INTO fixed_events(id,user_id,title,starts_at,ends_at)
-               VALUES (%s,%s,%s,%s,%s)
-               RETURNING *""",
-            (uuid4(), user_id, data.title, data.start, data.end),
-        ).fetchone()
-        return self._record(row)
+        with self._write(user_id):
+            row = self.conn.execute(
+                """INSERT INTO fixed_events(id,user_id,title,starts_at,ends_at)
+                   VALUES (%s,%s,%s,%s,%s)
+                   RETURNING *""",
+                (uuid4(), user_id, data.title, data.start, data.end),
+            ).fetchone()
+            return self._record(row)
 
     def list(self, user_id, start=None, end=None, limit=100, offset=0):
         rows = self.conn.execute(
@@ -44,24 +76,29 @@ class FixedEventRepository:
         return self._record(row)
 
     def replace(self, user_id, event_id, data: FixedEventReplace):
-        row = self.conn.execute(
-            """UPDATE fixed_events SET title=%s,starts_at=%s,ends_at=%s,version=version+1,updated_at=now()
-               WHERE user_id=%s AND id=%s AND version=%s RETURNING *""",
-            (data.title, data.start, data.end, user_id, event_id, data.expected_version),
-        ).fetchone()
-        if row is None:
-            self.get(user_id, event_id)
-            raise AppError(409, "stale_fixed_event", "این تعهد در جای دیگری تغییر کرده؛ صفحه را تازه کنید.")
-        return self._record(row)
+        with self._write(user_id):
+            row = self.conn.execute(
+                """UPDATE fixed_events SET title=%s,starts_at=%s,ends_at=%s,version=version+1,updated_at=now()
+                   WHERE user_id=%s AND id=%s AND version=%s RETURNING *""",
+                (data.title, data.start, data.end, user_id, event_id, data.expected_version),
+            ).fetchone()
+            if row is None:
+                self.get(user_id, event_id)
+                raise AppError(409, "stale_fixed_event", "این تعهد در جای دیگری تغییر کرده؛ صفحه را تازه کنید.")
+            return self._record(row)
 
     def delete(self, user_id, event_id, expected_version):
-        row = self.conn.execute(
-            "DELETE FROM fixed_events WHERE user_id=%s AND id=%s AND version=%s RETURNING id",
-            (user_id, event_id, expected_version),
-        ).fetchone()
-        if row is None:
-            self.get(user_id, event_id)
-            raise AppError(409, "stale_fixed_event", "این تعهد در جای دیگری تغییر کرده؛ صفحه را تازه کنید.")
+        with self._write(user_id):
+            row = self.conn.execute(
+                "DELETE FROM fixed_events WHERE user_id=%s AND id=%s AND version=%s RETURNING id",
+                (user_id, event_id, expected_version),
+            ).fetchone()
+            if row is None:
+                self.get(user_id, event_id)
+                raise AppError(409, "stale_fixed_event", "این تعهد در جای دیگری تغییر کرده؛ صفحه را تازه کنید.")
 
     def planning_events(self, user_id, start, end):
-        return self.list(user_id, start=start, end=end, limit=100, offset=0)
+        events = self.list(user_id, start=start, end=end, limit=101, offset=0)
+        if len(events) > 100:
+            raise AppError(422, "too_many_fixed_events", "تعداد تعهدهای ثابت در این بازه بیش از حد مجاز است.")
+        return events

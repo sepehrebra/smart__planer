@@ -1,3 +1,14 @@
+# وضعیت فعلی ساخت
+
+## نتیجهٔ تأیید قدم ۹ — ۲۰۲۶-۰۹-۲۶
+
+- کد `6def11396638c9918df08f3cf45edb3a1468cac3` در [PR شمارهٔ ۵](https://github.com/sepehrebra/smart__planer/pull/5) ثبت شد؛ هنوز در main ادغام نشده است.
+- [GitHub Actions](https://github.com/sepehrebra/smart__planer/actions/runs/36235088678): هر ۱۶۵ آزمون روی PostgreSQL 17 موفق؛ صفر skipped، شامل هر ۸ آزمون تازه و رقابت قفل‌ها.
+- بررسی موجودِ ماندگاری حساب، کار، برنامه، تاریخچه، رسیدها و نوبت‌های تکرار پس از restart نیز موفق بود. آزمون بار یا آماده‌بودن برای انتشار عمومی ادعا نمی‌شود.
+- ذخیره، ویرایش و Undo/Redo با تعهد ثابت فعلی متداخل نمی‌شوند؛ GET تعارض تازه را گزارش می‌کند. [قرارداد و محدودیت‌ها](SmartPlanner_Step_09.md).
+
+## سابقهٔ گزارش‌های قبلی
+
 # وضعیت ساخت — نسخهٔ ۰٫۵
 
 تاریخ: ۲۰۲۶-۰۹-۱۹
@@ -133,3 +144,11 @@
 - حذف کار نرم است؛ سیاست نگهداری و حذف قطعی حساب/کار هنوز تصمیم نهایی ندارد.
 - آزمون بار اجرا نشده و ظرفیت یا آماده‌بودن تجاری ادعا نمی‌شود.
 - Starlette در آزمون با HTTPX هشدار مهاجرت آینده به HTTPX2 می‌دهد؛ اجرای آزمون فعلی موفق است و این هشدار خطای برنامه نیست.
+
+## 2026-09-26 — Step 8 saved-schedule replanning preview
+
+Added POST /api/v1/schedules/{id}/replan, coherent read-only source snapshot,
+existing-block stability, explicit ad-hoc event replacement, and existing PUT handoff.
+Local verification: 78 non-database tests passed (including 6 new replan tests).
+PostgreSQL integration tests require CI; no native PostgreSQL is installed locally.
+See SmartPlanner_Step_08.md for API and known fixed-event/history consistency limits.

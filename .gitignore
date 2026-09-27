@@ -14,3 +14,5 @@ node_modules/
 data/
 *.log
 restart_state.json
+frontend/test-results/
+frontend/playwright-report/
