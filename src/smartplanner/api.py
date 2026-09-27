@@ -2,6 +2,7 @@
 
 import re
 import secrets
+from pathlib import Path
 from datetime import datetime, time, timedelta, timezone
 from threading import BoundedSemaphore
 from typing import Annotated
@@ -12,7 +13,8 @@ from zoneinfo import ZoneInfo
 import psycopg
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .accounts import (AuthLimiter, Credentials, Passwords, PreferencePut, PreferenceRecord, Registration, SessionView, UserView, csrf_for_token)
@@ -27,7 +29,7 @@ from .recurrence_models import OccurrenceRequest, OccurrenceResult, RecurrenceCr
 from .recurrence_repository import RecurrenceRepository
 from .planning_models import FixedEvent, PlanPreview, PreviewRequest
 from .scheduler import build_preview
-from .schedule_models import HistoryCommand, HistoryEntry, SavedSchedule, ScheduleCreate, ScheduleReplace, ScheduleResult, ScheduleSummary
+from .schedule_models import ReplanRequest, ReplanResult, HistoryCommand, HistoryEntry, SavedSchedule, ScheduleCreate, ScheduleReplace, ScheduleResult, ScheduleSummary
 from .schedule_repository import ScheduleRepository
 from .settings import Settings
 
@@ -261,6 +263,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def edit_schedule(schedule_id: UUID, data: ScheduleReplace, user: User, repo: Repo):
         return ScheduleRepository(repo.conn).replace(user.id, schedule_id, data)
 
+    @app.post("/api/v1/schedules/{schedule_id}/replan", response_model=ReplanResult)
+    def replan_schedule(schedule_id: UUID, data: ReplanRequest, user: User, repo: Repo):
+        if not planning_slots.acquire(blocking=False):
+            raise AppError(429, "planner_busy", "برنامه‌ریز مشغول است؛ کمی بعد دوباره تلاش کنید.")
+        try:
+            return ScheduleRepository(repo.conn).replan(user.id, schedule_id, data)
+        finally:
+            planning_slots.release()
+
     @app.get("/api/v1/schedules/{schedule_id}/history", response_model=list[HistoryEntry])
     def schedule_history(schedule_id: UUID, user: User, repo: Repo):
         return ScheduleRepository(repo.conn).history(user.id, schedule_id)
@@ -272,5 +283,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/v1/schedules/{schedule_id}/redo", response_model=ScheduleResult)
     def redo_schedule(schedule_id: UUID, data: HistoryCommand, user: User, repo: Repo):
         return ScheduleRepository(repo.conn).travel(user.id, schedule_id, data, "redo")
+
+    # A built frontend shares the API origin and HttpOnly session cookie.
+    # API-only development remains supported when the bundle is absent.
+    frontend = Path("frontend/dist").resolve()
+    if (frontend / "index.html").is_file():
+        app.mount("/assets", StaticFiles(directory=frontend / "assets"), name="assets")
+
+        @app.get("/", include_in_schema=False)
+        def web_app():
+            return FileResponse(frontend / "index.html")
 
     return app
