@@ -503,7 +503,7 @@ small,
 .setup .field {
   margin-bottom: 13px;
 }
-.setup .field > span {
+.setup .field > label {
   font-size: 11px;
 }
 .setup input,
@@ -874,7 +874,7 @@ small,
   gap: 7px;
   margin-bottom: 17px;
 }
-.field > span {
+.field > label {
   font-size: 12px;
   font-weight: 500;
   color: #587162;

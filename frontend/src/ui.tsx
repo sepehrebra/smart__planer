@@ -1,4 +1,12 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useId,
+  cloneElement,
+  isValidElement,
+  type ReactNode,
+  type ReactElement,
+} from "react";
 import { X, AlertCircle, Inbox } from "lucide-react";
 export function Modal({
   title,
@@ -71,11 +79,20 @@ export function Field({
   children: ReactNode;
   hint?: string;
 }) {
+  const id = useId();
   return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-      {hint && <small>{hint}</small>}
-    </label>
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      {isValidElement(children)
+        ? cloneElement(
+            children as ReactElement<{
+              id?: string;
+              "aria-describedby"?: string;
+            }>,
+            { id, "aria-describedby": hint ? id + "-hint" : undefined },
+          )
+        : children}
+      {hint && <small id={id + "-hint"}>{hint}</small>}
+    </div>
   );
 }

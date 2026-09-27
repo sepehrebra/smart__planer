@@ -232,3 +232,29 @@ test("uncertain fixed-event creation is not blindly repeated", async ({
     page.getByRole("button", { name: "بررسی فهرست تعهدها" }),
   ).toBeVisible();
 });
+
+test("preferences have precise accessible labels and preserve rejected edits", async ({
+  page,
+}) => {
+  await mock(page);
+  await page.route("**/api/v1/me/preferences", (r) =>
+    r.request().method() === "PUT"
+      ? r.fulfill({
+          status: 409,
+          json: { message: "ترجیحات در جای دیگری تغییر کرده‌اند." },
+        })
+      : r.fallback(),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "ریتم شخصی", exact: true }).click();
+  await page
+    .getByLabel("حجم کار روزانه", { exact: true })
+    .selectOption("light");
+  await page
+    .getByRole("button", { name: "ذخیرهٔ ترجیح‌ها", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("تغییر کرده‌اند");
+  await expect(page.getByLabel("حجم کار روزانه", { exact: true })).toHaveValue(
+    "light",
+  );
+});
