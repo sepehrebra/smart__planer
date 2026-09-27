@@ -49,6 +49,7 @@ test("real account → tasks/class → preview/save → move → reload → undo
     .getByRole("button", { name: "ذخیرهٔ برنامه", exact: true })
     .click();
   await expect(page.getByText("ذخیره‌شده", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("برنامهٔ ذخیره‌شده", { exact: true })).not.toHaveValue("");
   const id = await page
     .getByLabel("برنامهٔ ذخیره‌شده", { exact: true })
     .inputValue();

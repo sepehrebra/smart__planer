@@ -393,6 +393,9 @@ export function Planner({
               onChange={(e) => open(e.target.value)}
             >
               <option value="">برنامهٔ جدید</option>
+              {saved && !schedules.some((s) => s.id === saved.id) && (
+                <option value={saved.id}>{saved.state.title}</option>
+              )}
               {schedules.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.title}
