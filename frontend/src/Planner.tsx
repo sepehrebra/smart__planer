@@ -229,25 +229,44 @@ export function Planner({
   async function replan() {
     if (!saved || !canDiscard()) return;
     await run(async () => {
-      const result = await api<{ expected_version: number; preview: Preview }>(
-        `/schedules/${saved.id}/replan`,
-        "POST",
-        {
+      const missing = new Set(saved.sources.missing_task_ids || []);
+      const ids = saved.state.content.task_ids.filter((id) => !missing.has(id));
+      let p: Preview;
+      let expectedVersion = saved.version;
+      if (missing.size) {
+        // The saved-replan endpoint cannot load deleted tasks. Re-preview the
+        // surviving membership; nothing is removed until the user saves.
+        const { blocks, ...window } = saved.state.content;
+        p = await api<Preview>("/schedules/preview", "POST", {
+          ...window,
+          task_ids: ids,
+          previous_blocks: blocks.filter((b) => !missing.has(b.task_id)),
+        });
+      } else {
+        const result = await api<{
+          expected_version: number;
+          preview: Preview;
+        }>(`/schedules/${saved.id}/replan`, "POST", {
           expected_version: saved.version,
           fixed_events: saved.state.content.fixed_events,
-        },
-      );
-      const p = result.preview;
+        });
+        p = result.preview;
+        expectedVersion = result.expected_version;
+      }
       setDraft({
         title: saved.state.title,
-        content: { ...saved.state.content, blocks: p.blocks },
+        content: { ...saved.state.content, task_ids: ids, blocks: p.blocks },
         task_versions: p.task_versions,
         preference_version: p.preference_version,
         unscheduled: p.unscheduled,
         warnings: p.warnings,
-        expected_version: result.expected_version,
+        expected_version: expectedVersion,
       });
-      setNotice("پیشنهاد آماده است؛ زمان‌ها را بررسی و سپس ذخیره کن.");
+      setNotice(
+        missing.size
+          ? "کارهای حذف‌شده از این پیش‌نمایش کنار گذاشته شدند؛ نتیجه را بررسی و ذخیره کن."
+          : "پیشنهاد آماده است؛ زمان‌ها را بررسی و سپس ذخیره کن.",
+      );
     });
   }
   async function save() {

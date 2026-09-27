@@ -49,7 +49,9 @@ test("real account → tasks/class → preview/save → move → reload → undo
     .getByRole("button", { name: "ذخیرهٔ برنامه", exact: true })
     .click();
   await expect(page.getByText("ذخیره‌شده", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("برنامهٔ ذخیره‌شده", { exact: true })).not.toHaveValue("");
+  await expect(
+    page.getByLabel("برنامهٔ ذخیره‌شده", { exact: true }),
+  ).not.toHaveValue("");
   const id = await page
     .getByLabel("برنامهٔ ذخیره‌شده", { exact: true })
     .inputValue();
@@ -91,6 +93,33 @@ test("real account → tasks/class → preview/save → move → reload → undo
     .getByRole("button", { name: "ذخیرهٔ ترجیح‌ها", exact: true })
     .click();
   await expect(page.getByRole("status")).toContainText("ذخیره شد");
+  await page
+    .getByRole("button", { name: "کارهای من", exact: false })
+    .first()
+    .click();
+  page.once("dialog", (d) => d.accept());
+  await page
+    .getByRole("button", { name: "حذف مرور جبر خطی", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "مرور جبر خطی", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "برنامهٔ من", exact: true }).click();
+  await page.getByLabel("برنامهٔ ذخیره‌شده", { exact: true }).selectOption(id);
+  await expect(
+    page.getByText("این برنامه به بررسی نیاز دارد.", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "بازچینی پیشنهادی", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("کارهای حذف‌شده");
+  await page
+    .getByRole("button", { name: "ذخیرهٔ برنامه", exact: true })
+    .click();
+  await expect(page.getByText("نسخهٔ ۶", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "مرور جبر خطی", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "خروج از حساب", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "خوش برگشتی", exact: true }),

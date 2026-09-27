@@ -83,6 +83,7 @@ export interface Saved {
   };
   sources: {
     stale: boolean;
+    missing_task_ids?: string[];
     fixed_event_conflicts: {
       fixed_event_id: string;
       title: string;
