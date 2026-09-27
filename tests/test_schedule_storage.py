@@ -120,15 +120,26 @@ class ScheduleStorageTests(unittest.TestCase):
         self.assertEqual(self.get(saved)['version'], saved['version'])
         edit = self.edit_body(saved)
         edit['content']['blocks'] = preview['blocks']
-        edit['content']['fixed_events'] = preview['fixed_events']
+        # Durable events stay live; the frontend preserves only ad-hoc events.
         edit['task_versions'] = preview['task_versions']
         edit['preference_version'] = preview['preference_version']
         applied = self.edit(saved, edit)
         self.assertEqual(applied.status_code, 200, applied.text)
         self.assertEqual(self.a.post(url, json=body).status_code, 409)
         self.assertEqual(self.get(saved)['state']['content']['blocks'], preview['blocks'])
-        # Existing history works with the newly saved preview.
-        undo = self.travel(applied.json()['schedule'], 'undo')
+        current = applied.json()['schedule']
+        repeated = self.a.post(url, json={'expected_version': current['version'], 'fixed_events': []})
+        self.assertEqual(repeated.status_code, 200, repeated.text)
+        # Integrated Step 9 semantics: history cannot restore a live conflict.
+        counts = self.counts(current)
+        rejected = self.travel(current, 'undo')
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        self.assertEqual(rejected.json()['code'], 'stored_fixed_event_conflict')
+        self.assertEqual(self.counts(current), counts)
+        stored_event = event.json()
+        removed = self.a.delete(f"/api/v1/fixed-events/{stored_event['id']}?expected_version={stored_event['version']}")
+        self.assertEqual(removed.status_code, 204, removed.text)
+        undo = self.travel(current, 'undo')
         self.assertEqual(undo.status_code, 200, undo.text)
         self.assertEqual(undo.json()['schedule']['state']['content']['blocks'], saved['state']['content']['blocks'])
 
