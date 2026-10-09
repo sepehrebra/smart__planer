@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartPlanner</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div><h1>SmartPlanner</h1><p>کارها و رویدادهای ثابت شما، در یک جا</p></div>
+      <button id="logout" class="quiet hidden" type="button">خروج</button>
+    </header>
+    <p id="notice" class="notice" role="status"></p>
+
+    <section id="auth" class="auth-grid" aria-label="ورود یا ثبت‌نام">
+      <form id="login-form" class="card">
+        <h2>ورود</h2>
+        <label>ایمیل<input id="login-email" type="email" autocomplete="email" required></label>
+        <label>رمز عبور<input id="login-password" type="password" autocomplete="current-password" required></label>
+        <button>ورود به برنامه</button>
+      </form>
+      <form id="register-form" class="card">
+        <h2>ساخت حساب محلی</h2>
+        <label>ایمیل<input id="register-email" type="email" autocomplete="email" required></label>
+        <label>رمز عبور<input id="register-password" type="password" autocomplete="new-password" required minlength="12"></label>
+        <label>منطقهٔ زمانی<select id="timezone"><option value="Asia/Tehran">Asia/Tehran</option><option value="UTC">UTC</option></select></label>
+        <button>ثبت‌نام و ورود</button>
+      </form>
+    </section>
+
+    <section id="planner" class="hidden" aria-live="polite">
+      <p id="welcome" class="welcome"></p>
+      <div class="layout">
+        <form id="task-form" class="card">
+          <input id="task-id" type="hidden"><input id="task-version" type="hidden">
+          <h2 id="task-heading">افزودن کار</h2>
+          <label>عنوان<input id="task-title" maxlength="200" required></label>
+          <label>توضیحات<textarea id="task-description" maxlength="2000"></textarea></label>
+          <div class="two"><label>مدت (دقیقه)<input id="task-duration" type="number" min="1" max="10080" value="30" required></label><label>اولویت<input id="task-priority" type="number" min="1" max="10" value="5" required></label></div>
+          <div class="two"><label>زودترین شروع<input id="task-earliest" type="datetime-local"></label><label>مهلت<input id="task-deadline" type="datetime-local"></label></div>
+          <div class="two"><label>بازهٔ ترجیحی<select id="task-period"><option value="any">هر زمان</option><option value="morning">صبح</option><option value="afternoon">بعدازظهر</option><option value="evening">شب</option></select></label><label class="check"><input id="task-splittable" type="checkbox"> قابل تقسیم</label></div>
+          <div class="actions"><button>ذخیرهٔ کار</button><button id="task-cancel" class="quiet" type="button">انصراف</button></div>
+        </form>
+
+        <form id="event-form" class="card">
+          <input id="event-id" type="hidden"><input id="event-version" type="hidden">
+          <h2 id="event-heading">افزودن رویداد ثابت</h2>
+          <label>عنوان<input id="event-title" maxlength="200" required></label>
+          <div class="two"><label>شروع<input id="event-start" type="datetime-local" required></label><label>پایان<input id="event-end" type="datetime-local" required></label></div>
+          <div class="actions"><button>ذخیرهٔ رویداد</button><button id="event-cancel" class="quiet" type="button">انصراف</button></div>
+        </form>
+      </div>
+      <div class="lists">
+        <section class="card"><h2>کارها</h2><div id="tasks" class="items"></div></section>
+        <section class="card"><h2>رویدادهای ثابت</h2><div id="events" class="items"></div></section>
+      </div>
+      <section class="card planner-card">
+        <h2>برنامهٔ روزانه</h2>
+        <p class="muted">وقت آزاد را مشخص کنید، کارهای موردنظر را انتخاب کنید و پیش‌نمایش بگیرید. رویدادهای ثابتِ ذخیره‌شده خودکار در برنامه لحاظ می‌شوند.</p>
+        <form id="schedule-form">
+          <div class="three"><label>تاریخ<input id="schedule-date" type="date" required></label><label>شروع وقت آزاد<input id="availability-start" type="time" value="09:00" required></label><label>پایان وقت آزاد<input id="availability-end" type="time" value="18:00" required></label></div>
+          <fieldset><legend>کارهای برنامه</legend><div id="schedule-tasks" class="check-list"></div></fieldset>
+          <div class="actions"><button>ساخت پیش‌نمایش روز</button></div>
+        </form>
+        <div id="schedule-result" class="schedule-result" aria-live="polite"></div>
+      </section>
+    </section>
+  </main>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

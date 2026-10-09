@@ -12,7 +12,8 @@ from zoneinfo import ZoneInfo
 import psycopg
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .accounts import (AuthLimiter, Credentials, Passwords, PreferencePut, PreferenceRecord, Registration, SessionView, UserView, csrf_for_token)
@@ -30,6 +31,7 @@ from .scheduler import build_preview
 from .schedule_models import HistoryCommand, HistoryEntry, SavedSchedule, ScheduleCreate, ScheduleReplace, ScheduleResult, ScheduleSummary
 from .schedule_repository import ScheduleRepository
 from .settings import Settings
+from .web import WEB_DIR
 
 COOKIE_NAME = "smartplanner_session"
 TOKEN_FORMAT = re.compile(r"^[A-Za-z0-9_-]{43}$")
@@ -39,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings.from_environment()
     app = FastAPI(title="SmartPlanner", version="0.6.0", redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[urlsplit(config.origin).hostname])
+    app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
     passwords = Passwords()
     limiter = AuthLimiter(config.auth_requests_per_minute)
     planning_slots = BoundedSemaphore(2)
@@ -94,6 +97,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return user
 
     User = Annotated[UserView, Depends(current_user)]
+
+    @app.get("/", include_in_schema=False)
+    def browser_app():
+        return FileResponse(WEB_DIR / "index.html", media_type="text/html")
 
     def limit_auth(request: Request):
         limiter.check(request.client.host if request.client else "unknown")
