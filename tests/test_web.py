@@ -17,6 +17,8 @@ class BrowserAssetsTest(unittest.TestCase):
         self.assertIn('id="task-form"', page)
         self.assertIn('id="event-form"', page)
         self.assertIn('id="schedule-form"', page)
+        self.assertIn('id="save-schedule-form"', page)
+        self.assertIn('id="block-form"', page)
 
     def test_assets_exist(self):
         self.assertTrue((WEB_DIR / "app.css").is_file())

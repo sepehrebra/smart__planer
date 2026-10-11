@@ -40,7 +40,8 @@
           <label>توضیحات<textarea id="task-description" maxlength="2000"></textarea></label>
           <div class="two"><label>مدت (دقیقه)<input id="task-duration" type="number" min="1" max="10080" value="30" required></label><label>اولویت<input id="task-priority" type="number" min="1" max="10" value="5" required></label></div>
           <div class="two"><label>زودترین شروع<input id="task-earliest" type="datetime-local"></label><label>مهلت<input id="task-deadline" type="datetime-local"></label></div>
-          <div class="two"><label>بازهٔ ترجیحی<select id="task-period"><option value="any">هر زمان</option><option value="morning">صبح</option><option value="afternoon">بعدازظهر</option><option value="evening">شب</option></select></label><label class="check"><input id="task-splittable" type="checkbox"> قابل تقسیم</label></div>
+          <div class="two"><label>بازهٔ ترجیحی<select id="task-period"><option value="any">هر زمان</option><option value="morning">صبح</option><option value="afternoon">بعدازظهر</option><option value="evening">شب</option></select></label><label>وضعیت<select id="task-status"><option value="pending">باز</option><option value="completed">انجام‌شده</option><option value="cancelled">لغوشده</option></select></label></div>
+          <label class="check"><input id="task-splittable" type="checkbox"> قابل تقسیم</label>
           <div class="actions"><button>ذخیرهٔ کار</button><button id="task-cancel" class="quiet" type="button">انصراف</button></div>
         </form>
 
@@ -65,6 +66,16 @@
           <div class="actions"><button>ساخت پیش‌نمایش روز</button></div>
         </form>
         <div id="schedule-result" class="schedule-result" aria-live="polite"></div>
+        <form id="save-schedule-form" class="inline-form hidden">
+          <label>عنوان برنامه<input id="schedule-title" maxlength="200" required></label><button>ذخیرهٔ برنامه</button>
+        </form>
+        <section id="saved-schedule" class="saved-schedule hidden">
+          <h3 id="saved-heading">برنامهٔ ذخیره‌شده</h3><p id="saved-status" class="muted"></p>
+          <form id="block-form" class="three"><label>بلوک کار<select id="saved-block"></select></label><label>شروع<input id="block-start" type="datetime-local" required></label><label>پایان<input id="block-end" type="datetime-local" required></label><label class="check"><input id="block-locked" type="checkbox"> قفل این بلوک</label><button>ذخیرهٔ تغییر بلوک</button></form>
+          <div class="actions"><button id="undo" type="button" class="quiet">Undo</button><button id="redo" type="button" class="quiet">Redo</button></div>
+          <div id="history" class="history"></div>
+        </section>
+        <section class="saved-list"><h3>برنامه‌های ذخیره‌شده</h3><div id="saved-schedules" class="items"></div></section>
       </section>
     </section>
   </main>
