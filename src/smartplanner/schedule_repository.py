@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 
 from .accounts import PreferenceRecord
 from .errors import AppError, not_found
+from .fixed_event_repository import FixedEventRepository
 from .models import TaskRecord
 from .planning_models import TimeWindow
 from .repository import TASK_COLUMNS
@@ -88,10 +89,12 @@ class ScheduleRepository:
         changed = tuple(sorted((key for key, version in state.task_versions.items()
                                 if key in live and key not in missing and live[key]["version"] != version), key=str))
         preferences_changed = not sources or sources[0]["preference_version"] != state.preference_version
+        conflicts = FixedEventRepository(self.conn).layout_conflicts(owner, state.content.blocks)
         return SavedSchedule(id=row["id"], version=row["version"], history_revision=row["current_revision"],
                              timezone=row["timezone"], horizon=TimeWindow(start=row["start_at"], end=row["end_at"]),
-                             state=state, sources=SourceStatus(stale=bool(missing or changed or preferences_changed),
-                             missing_task_ids=missing, changed_task_ids=changed, preferences_changed=preferences_changed),
+                             state=state, sources=SourceStatus(stale=bool(missing or changed or preferences_changed or conflicts),
+                             missing_task_ids=missing, changed_task_ids=changed, preferences_changed=preferences_changed,
+                             fixed_event_conflicts=conflicts),
                              can_undo=row["can_undo"], can_redo=row["can_redo"], created_at=row["created_at"], updated_at=row["updated_at"])
 
     def get(self, owner, schedule_id):
@@ -152,6 +155,8 @@ class ScheduleRepository:
         if previous is not None and (candidate.content.start_date, candidate.content.days) != (previous.content.start_date, previous.content.days):
             raise AppError(409, "schedule_horizon_changed", "تاریخ و طول محدودهٔ برنامهٔ ذخیره‌شده ثابت است.")
         protect_placements(previous.content.blocks if previous else (), candidate.content.blocks, live, now)
+        if FixedEventRepository(self.conn).layout_conflicts(owner, candidate.content.blocks):
+            raise AppError(409, "stored_fixed_event_conflict", "زمان کار با تعهد ثابت فعلی تداخل دارد؛ برنامه را دوباره بررسی کنید.")
         horizon, unscheduled, ignored, warnings = inspect_layout(candidate.content, candidate.content.blocks, tasks, preferences, timezone_name=zone)
         if any(event.start < horizon.start or event.end > horizon.end for event in candidate.content.fixed_events):
             raise AppError(422, "fixed_event_outside_saved_horizon", "تعهد ثابت باید کامل داخل محدودهٔ ذخیره باشد؛ برنامهٔ هفتگی انتخاب کنید یا تعهد را در هر دو روز ثبت کنید.")
