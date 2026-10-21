@@ -153,16 +153,18 @@ class TaskEditTests(unittest.TestCase):
 
 
 class PreferenceTests(unittest.TestCase):
-    def test_six_defaults_and_valid_customization(self):
+    def test_defaults_and_valid_customization(self):
         preferences = PreferenceValues(focus_block_minutes=25, workload="light", break_minutes=5)
-        self.assertEqual(len(preferences.model_dump()), 6)
+        self.assertEqual(len(preferences.model_dump()), 8)
         self.assertEqual(preferences.focus_block_minutes, 25)
+        self.assertEqual(preferences.activity_start.isoformat(), "09:00:00")
 
     def test_invalid_preference_values_are_rejected(self):
         for change in [{"focus_block_minutes": 0}, {"focus_block_minutes": 35},
                        {"focus_block_minutes": True}, {"break_minutes": -1},
                        {"break_minutes": 61}, {"workload": "extreme"},
-                       {"deep_work_period": "midnight"}, {"mbti": "INTJ"}]:
+                       {"deep_work_period": "midnight"}, {"activity_start": "20:00", "activity_end": "09:00"},
+                       {"activity_start": "09:00:30"}, {"mbti": "INTJ"}]:
             with self.subTest(change=change), self.assertRaises(ValidationError):
                 PreferenceValues.model_validate(change)
 

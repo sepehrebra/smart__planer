@@ -180,10 +180,13 @@ class StorageApiTests(unittest.TestCase):
     def test_14_preferences_are_isolated_and_versioned(self):
         before = self.a.get("/api/v1/me/preferences").json()
         other_before = self.b.get("/api/v1/me/preferences").json()
-        data = {"expected_version": before["version"], "values": {"workload": "light", "focus_block_minutes": 25}}
+        data = {"expected_version": before["version"], "values": {"workload": "light", "focus_block_minutes": 25,
+                "activity_start": "08:00", "activity_end": "17:00"}}
         first = self.a.put("/api/v1/me/preferences", json=data)
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.json()["focus_block_minutes"], 25)
+        self.assertEqual(first.json()["activity_start"], "08:00:00")
+        self.assertEqual(self.a.get("/api/v1/me/preferences").json()["activity_end"], "17:00:00")
         self.assertEqual(self.a.put("/api/v1/me/preferences", json=data).status_code, 409)
         self.assertEqual(self.b.get("/api/v1/me/preferences").json(), other_before)
 

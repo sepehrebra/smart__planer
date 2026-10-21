@@ -36,6 +36,8 @@ jobs:
           cache: pip
       - name: Install application and test dependencies
         run: python -m pip install -e '.[test]'
+      - name: Check browser time conversion
+        run: node tests/test_web_time.mjs
       - name: Run contract and native PostgreSQL tests
         run: python scripts/run_tests.py
       - name: Seed restart probe

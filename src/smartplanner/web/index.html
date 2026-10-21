@@ -32,6 +32,21 @@
 
     <section id="planner" class="hidden" aria-live="polite">
       <p id="welcome" class="welcome"></p>
+      <p class="muted">داده‌های هر حساب فقط در همان حساب نمایش داده می‌شوند. ساعت‌ها بر اساس منطقهٔ زمانی حساب هستند.</p>
+      <details class="card settings-card">
+        <summary>ترجیحات برنامه‌ریزی</summary>
+        <form id="preferences-form" class="settings-grid">
+          <label>شروع ساعت فعالیت<input id="activity-start" type="time" required></label>
+          <label>پایان ساعت فعالیت<input id="activity-end" type="time" required></label>
+          <label>ساعت فعالیت ترجیحی<select id="chronotype"><option value="morning">صبح</option><option value="neutral">فرقی ندارد</option><option value="evening">شب</option></select></label>
+          <label>بازهٔ تمرکز<select id="focus-block"><option value="25">۲۵ دقیقه</option><option value="45">۴۵ دقیقه</option><option value="60">۶۰ دقیقه</option><option value="90">۹۰ دقیقه</option></select></label>
+          <label>استراحت (دقیقه)<input id="break-minutes" type="number" min="0" max="60" required></label>
+          <label>انعطاف تغییر<select id="flexibility"><option value="low">کم</option><option value="medium">متوسط</option><option value="high">زیاد</option></select></label>
+          <label>حجم برنامه<select id="workload"><option value="light">سبک</option><option value="medium">متوسط</option><option value="intense">فشرده</option></select></label>
+          <label>زمان کار عمیق<select id="deep-work"><option value="morning">صبح</option><option value="afternoon">بعدازظهر</option><option value="evening">شب</option></select></label>
+          <button>ذخیرهٔ ترجیحات</button>
+        </form>
+      </details>
       <div class="layout">
         <form id="task-form" class="card">
           <input id="task-id" type="hidden"><input id="task-version" type="hidden">
@@ -57,13 +72,32 @@
         <section class="card"><h2>کارها</h2><div id="tasks" class="items"></div></section>
         <section class="card"><h2>رویدادهای ثابت</h2><div id="events" class="items"></div></section>
       </div>
+      <details class="card settings-card">
+        <summary>فعالیت‌های تکراری</summary>
+        <form id="recurrence-form" class="settings-grid">
+          <input id="recurrence-id" type="hidden"><input id="recurrence-version" type="hidden">
+          <label>عنوان<input id="recurrence-title" maxlength="200" required></label>
+          <label>مدت هر نوبت (دقیقه)<input id="recurrence-duration" type="number" min="1" max="1440" value="60" required></label>
+          <label>اولویت<input id="recurrence-priority" type="number" min="1" max="10" value="5" required></label>
+          <label>تکرار<select id="recurrence-frequency"><option value="daily">هر روز</option><option value="weekdays">روزهای منتخب</option><option value="weekly">هفتگی در روز شروع</option></select></label>
+          <fieldset id="recurrence-weekdays" class="full hidden"><legend>روزهای منتخب</legend><div class="weekday-grid">
+            <label><input type="checkbox" value="sat">شنبه</label><label><input type="checkbox" value="sun">یکشنبه</label><label><input type="checkbox" value="mon">دوشنبه</label><label><input type="checkbox" value="tue">سه‌شنبه</label><label><input type="checkbox" value="wed">چهارشنبه</label><label><input type="checkbox" value="thu">پنجشنبه</label><label><input type="checkbox" value="fri">جمعه</label>
+          </div></fieldset>
+          <label>شروع الگو<input id="recurrence-start" type="date" required></label>
+          <label>پایان الگو (اختیاری)<input id="recurrence-end" type="date"></label>
+          <label class="check"><input id="recurrence-active" type="checkbox" checked> فعال</label>
+          <div class="actions full"><button>ذخیرهٔ الگو</button><button id="recurrence-cancel" type="button" class="quiet">انصراف</button></div>
+        </form>
+        <p class="muted">نوبت‌های هر هفته با دکمهٔ «ساخت نوبت‌های هفته» ساخته می‌شوند. ویرایش الگو نوبت‌های ساخته‌شده را تغییر نمی‌دهد.</p>
+        <div id="recurrences" class="items"></div>
+      </details>
       <section class="card planner-card">
-        <h2>برنامهٔ روزانه</h2>
-        <p class="muted">وقت آزاد را مشخص کنید، کارهای موردنظر را انتخاب کنید و پیش‌نمایش بگیرید. رویدادهای ثابتِ ذخیره‌شده خودکار در برنامه لحاظ می‌شوند.</p>
+        <h2>برنامهٔ روزانه و هفتگی</h2>
+        <p class="muted">برای هفته، همین ساعت آزاد در هر هفت روز اعمال می‌شود. رویدادهای ثابت ذخیره‌شده خودکار لحاظ می‌شوند.</p>
         <form id="schedule-form">
-          <div class="three"><label>تاریخ<input id="schedule-date" type="date" required></label><label>شروع وقت آزاد<input id="availability-start" type="time" value="09:00" required></label><label>پایان وقت آزاد<input id="availability-end" type="time" value="18:00" required></label></div>
+          <div class="three"><label>تاریخ شروع<input id="schedule-date" type="date" required></label><label>نما<select id="schedule-days"><option value="1">روز</option><option value="7">هفته</option></select></label><label>شروع وقت آزاد<input id="availability-start" type="time" value="09:00" required></label><label>پایان وقت آزاد<input id="availability-end" type="time" value="18:00" required></label></div>
           <fieldset><legend>کارهای برنامه</legend><div id="schedule-tasks" class="check-list"></div></fieldset>
-          <div class="actions"><button>ساخت پیش‌نمایش روز</button></div>
+          <div class="actions"><button>ساخت پیش‌نمایش</button></div>
         </form>
         <div id="schedule-result" class="schedule-result" aria-live="polite"></div>
         <form id="save-schedule-form" class="inline-form hidden">
@@ -79,6 +113,6 @@
       </section>
     </section>
   </main>
-  <script src="/assets/app.js"></script>
+  <script type="module" src="/assets/app.js"></script>
 </body>
 </html>

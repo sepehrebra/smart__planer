@@ -189,6 +189,7 @@ class Repository:
                 "UPDATE user_preferences SET chronotype = %(chronotype)s, "
                 "focus_block_minutes = %(focus_block_minutes)s, break_minutes = %(break_minutes)s, "
                 "flexibility = %(flexibility)s, workload = %(workload)s, deep_work_period = %(deep_work_period)s, "
+                "activity_start = %(activity_start)s, activity_end = %(activity_end)s, "
                 "version = version + 1, updated_at = GREATEST(clock_timestamp(), updated_at) "
                 "WHERE user_id = %(user_id)s AND version = %(expected_version)s RETURNING *", data,
             ).fetchone()

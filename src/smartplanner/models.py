@@ -1,6 +1,6 @@
 """Validated contracts independent of HTTP, database drivers and AI providers."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
@@ -115,7 +115,7 @@ class TaskPatch(TaskTimes):
 
 
 class PreferenceValues(Contract):
-    """Six explicit scheduling preferences; these do not define availability."""
+    """Scheduling preferences; activity hours seed explicit availability windows."""
 
     chronotype: Literal["morning", "neutral", "evening"] = "neutral"
     focus_block_minutes: StrictInt = 45
@@ -123,6 +123,21 @@ class PreferenceValues(Contract):
     flexibility: Literal["low", "medium", "high"] = "medium"
     workload: Literal["light", "medium", "intense"] = "medium"
     deep_work_period: Literal["morning", "afternoon", "evening"] = "afternoon"
+    activity_start: time = time(9, 0)
+    activity_end: time = time(18, 0)
+
+    @field_validator("activity_start", "activity_end")
+    @classmethod
+    def whole_minute_clock(cls, value: time) -> time:
+        if value.tzinfo is not None or value.second or value.microsecond:
+            raise ValueError("Choose a local clock time to the minute.")
+        return value
+
+    @model_validator(mode="after")
+    def positive_activity_window(self) -> Self:
+        if self.activity_end <= self.activity_start:
+            raise ValueError("Activity end must be after activity start.")
+        return self
 
     @field_validator("focus_block_minutes")
     @classmethod

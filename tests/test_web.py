@@ -19,19 +19,25 @@ class BrowserAssetsTest(unittest.TestCase):
         self.assertIn('id="schedule-form"', page)
         self.assertIn('id="save-schedule-form"', page)
         self.assertIn('id="block-form"', page)
+        self.assertIn('id="preferences-form"', page)
+        self.assertIn('id="recurrence-form"', page)
+        self.assertIn('id="schedule-days"', page)
 
     def test_assets_exist(self):
         self.assertTrue((WEB_DIR / "app.css").is_file())
         self.assertTrue((WEB_DIR / "app.js").is_file())
+        self.assertTrue((WEB_DIR / "planner_time.mjs").is_file())
 
     def test_api_serves_browser_client_without_database_access(self):
         app = create_app(Settings("postgresql://unused:unused@localhost/unused"))
         with TestClient(app, base_url="http://localhost:8000") as client:
             page = client.get("/")
             script = client.get("/assets/app.js")
+            time_script = client.get("/assets/planner_time.mjs")
         self.assertEqual(page.status_code, 200)
         self.assertIn("SmartPlanner", page.text)
         self.assertEqual(script.status_code, 200)
+        self.assertEqual(time_script.status_code, 200)
 
 
 if __name__ == "__main__":
