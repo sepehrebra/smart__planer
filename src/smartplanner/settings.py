@@ -15,8 +15,8 @@ class Settings:
     auth_requests_per_minute: int = 10
 
     def __post_init__(self):
-        if not self.database_url:
-            raise ValueError("DATABASE_URL is required.")
+        if not self.database_url or not self.database_url.startswith(("sqlite:///", "postgresql://")):
+            raise ValueError("DATABASE_URL must be sqlite:/// or postgresql://.")
         origin = urlsplit(self.origin)
         if (origin.scheme not in {"http", "https"} or not origin.hostname
                 or origin.path or origin.query or origin.fragment or origin.username):
@@ -38,7 +38,7 @@ class Settings:
         if secure not in {"true", "false"}:
             raise ValueError("SESSION_COOKIE_SECURE must be true or false.")
         return cls(
-            database_url=os.getenv("DATABASE_URL", ""),
+            database_url=os.getenv("DATABASE_URL", "sqlite:///data/smartplanner.db"),
             origin=os.getenv("APP_ORIGIN", "http://localhost:8000"),
             environment=os.getenv("APP_ENV", "development"),
             cookie_secure=secure == "true",

@@ -3,7 +3,8 @@
 import hashlib
 import json
 import secrets
-from uuid import UUID
+from uuid import UUID, uuid4
+from datetime import datetime, timedelta, timezone
 
 from pydantic import ValidationError
 
@@ -35,9 +36,9 @@ class Repository:
     def register(self, data: Registration, password_hash: str) -> UserView:
         with self.conn.transaction():
             row = self.conn.execute(
-                f"INSERT INTO users(email, password_hash, timezone) VALUES (%s, %s, %s) "
+                f"INSERT INTO users(id, email, password_hash, timezone) VALUES (%s, %s, %s, %s) "
                 f"ON CONFLICT (lower(email)) DO NOTHING RETURNING {USER_COLUMNS}",
-                (data.email, password_hash, data.timezone),
+                (uuid4(), data.email, password_hash, data.timezone),
             ).fetchone()
             if row is None:
                 raise AppError(409, "email_unavailable", "این ایمیل قابل استفاده نیست.")
@@ -56,8 +57,8 @@ class Repository:
             self.conn.execute("DELETE FROM sessions WHERE user_id = %s AND expires_at <= now()", (user_id,))
             self.conn.execute(
                 "INSERT INTO sessions(token_digest, user_id, expires_at) "
-                "VALUES (%s, %s, now() + %s * INTERVAL '1 hour')",
-                (token_digest(token), user_id, hours),
+                "VALUES (%s, %s, %s)",
+                (token_digest(token), user_id, datetime.now(timezone.utc) + timedelta(hours=hours)),
             )
         return token
 
@@ -78,12 +79,12 @@ class Repository:
     def create_task(self, owner: UUID, task: TaskCreate) -> tuple[TaskRecord, bool]:
         digest = creation_digest(task)
         data = task.model_dump()
-        data.update(user_id=owner, creation_digest=digest)
+        data.update(id=uuid4(), user_id=owner, creation_digest=digest)
         with self.conn.transaction():
             row = self.conn.execute(
-                "INSERT INTO tasks(user_id, client_request_id, title, description, duration_minutes, "
+                "INSERT INTO tasks(id, user_id, client_request_id, title, description, duration_minutes, "
                 "priority, splittable, preferred_period, earliest_start, deadline, creation_digest) "
-                "VALUES (%(user_id)s, %(client_request_id)s, %(title)s, %(description)s, "
+                "VALUES (%(id)s, %(user_id)s, %(client_request_id)s, %(title)s, %(description)s, "
                 "%(duration_minutes)s, %(priority)s, %(splittable)s, %(preferred_period)s, "
                 "%(earliest_start)s, %(deadline)s, %(creation_digest)s) "
                 f"ON CONFLICT (user_id, client_request_id) DO NOTHING RETURNING {TASK_COLUMNS}", data,

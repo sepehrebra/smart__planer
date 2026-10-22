@@ -167,10 +167,9 @@ class ScheduleRepository:
         if conflict:
             raise AppError(409, "task_already_scheduled", "این کار در برنامهٔ دیگری زمان دارد؛ ابتدا زمان قبلی آن را بردارید.")
         self.conn.execute("DELETE FROM schedule_allocations WHERE user_id=%s AND schedule_id=%s", (owner, schedule_id))
-        if ids:
-            self.conn.execute("INSERT INTO schedule_allocations(user_id,task_id,schedule_id) "
-                              "SELECT %s, task_id, %s FROM unnest(%s::uuid[]) AS selected(task_id)",
-                              (owner, schedule_id, ids))
+        for task_id in ids:
+            self.conn.execute("INSERT INTO schedule_allocations(user_id,task_id,schedule_id) VALUES (%s,%s,%s)",
+                              (owner, task_id, schedule_id))
 
     def _insert_state(self, owner, schedule_id, revision, state):
         self.conn.execute("INSERT INTO schedule_versions(schedule_id,user_id,revision,state) VALUES (%s,%s,%s,%s)",

@@ -48,13 +48,13 @@ class RecurrenceRepository:
         digest = hashlib.sha256(json.dumps(data.model_dump(mode="json"), sort_keys=True,
                                           separators=(",", ":")).encode()).hexdigest()
         params = data.model_dump()
-        params.update(user_id=owner, creation_digest=digest, weekdays=list(data.weekdays))
+        params.update(id=uuid4(), user_id=owner, creation_digest=digest, weekdays=list(data.weekdays))
         with self.conn.transaction():
             self.conn.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
             row = self.conn.execute(
-                "INSERT INTO recurring_activities(user_id, client_request_id, creation_digest, title, description, "
+                "INSERT INTO recurring_activities(id, user_id, client_request_id, creation_digest, title, description, "
                 "duration_minutes, priority, splittable, preferred_period, frequency, weekdays, start_date, end_date, active, timezone) "
-                "SELECT %(user_id)s, %(client_request_id)s, %(creation_digest)s, %(title)s, %(description)s, "
+                "SELECT %(id)s, %(user_id)s, %(client_request_id)s, %(creation_digest)s, %(title)s, %(description)s, "
                 "%(duration_minutes)s, %(priority)s, %(splittable)s, %(preferred_period)s, %(frequency)s, "
                 "%(weekdays)s::text[], %(start_date)s, %(end_date)s, %(active)s, timezone FROM users WHERE id=%(user_id)s "
                 f"ON CONFLICT (user_id, client_request_id) DO NOTHING RETURNING {RECURRENCE_COLUMNS}", params,
@@ -113,13 +113,13 @@ class RecurrenceRepository:
         params = []
         for day in days:
             start, end = occurrence_window(day, series.timezone, series.duration_minutes)
-            params.extend((owner, uuid4(), series.title, series.description, series.duration_minutes,
+            params.extend((uuid4(), owner, uuid4(), series.title, series.description, series.duration_minutes,
                            series.priority, series.splittable, series.preferred_period,
                            start, end, series.id, day))
         # At most seven rows; only placeholder count is interpolated, never values.
-        placeholders = ",".join(["(" + ",".join(["%s"] * 12) + ")"] * len(days))
+        placeholders = ",".join(["(" + ",".join(["%s"] * 13) + ")"] * len(days))
         rows = self.conn.execute(
-            "INSERT INTO tasks(user_id, client_request_id, title, description, duration_minutes, priority, "
+            "INSERT INTO tasks(id, user_id, client_request_id, title, description, duration_minutes, priority, "
             "splittable, preferred_period, earliest_start, deadline, recurrence_id, occurrence_date) "
             f"VALUES {placeholders} RETURNING {TASK_COLUMNS}", params,
         ).fetchall()

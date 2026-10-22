@@ -1,4 +1,5 @@
 import { addDays, availabilityForDays, dateInZone, isoToLocal as zonedLocal, localToIso as zonedIso } from './planner_time.mjs';
+import { scheduleCsv, scheduleIcs } from './planner_export.mjs';
 
 (() => {
   const $ = id => document.getElementById(id);
@@ -182,6 +183,14 @@ import { addDays, availabilityForDays, dateInZone, isoToLocal as zonedLocal, loc
   async function loadHistory() { if (!state.saved) return; try { const entries = await api(`/api/v1/schedules/${state.saved.id}/history`); const host = $('history'); host.textContent = ''; entries.forEach(entry => { const row = document.createElement('p'); row.textContent = `نسخهٔ تاریخی ${entry.revision}: ${entry.title}${entry.current ? ' (فعلی)' : ''}`; host.append(row); }); } catch (error) { message(error.message); } }
   function savedContent() { return JSON.parse(JSON.stringify(state.saved.state.content)); }
   function updatePayload(content) { return { client_request_id: requestId(), expected_version: state.saved.version, title: state.saved.state.title, content, task_versions: state.saved.state.task_versions, preference_version: state.saved.state.preference_version }; }
+  function downloadSchedule(kind) {
+    if (!state.saved) return;
+    const body = kind === 'ics' ? scheduleIcs(state.saved) : scheduleCsv(state.saved);
+    const mime = kind === 'ics' ? 'text/calendar;charset=utf-8' : 'text/csv;charset=utf-8';
+    const url = URL.createObjectURL(new Blob([body], { type: mime }));
+    const link = document.createElement('a'); link.href = url; link.download = `smartplanner-${state.saved.state.content.start_date}.${kind}`;
+    document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
   async function travel(direction) { try { applySchedule(await api(`/api/v1/schedules/${state.saved.id}/${direction}`, { method: 'POST', body: JSON.stringify({ client_request_id: requestId(), expected_version: state.saved.version }) })); message(direction === 'undo' ? 'تغییر برگشت داده شد.' : 'تغییر دوباره اعمال شد.', true); } catch (error) { message(error.message); } }
   function renderItems(id, data, empty, detail, edit, remove) {
     const host = $(id); host.textContent = '';
@@ -243,6 +252,8 @@ import { addDays, availabilityForDays, dateInZone, isoToLocal as zonedLocal, loc
   $('block-form').onsubmit = async event => { event.preventDefault(); if (!state.saved) return; try { const content = savedContent(); const index = Number($('saved-block').value); const old = content.blocks[index]; const start = localToIso($('block-start').value); const end = localToIso($('block-end').value); const changedTime = old.start !== start || old.end !== end; const changedLock = old.locked !== $('block-locked').checked; if (changedTime && changedLock) { message('قفل را در یک تغییر جدا باز یا بسته کنید، سپس زمان را تغییر دهید.'); return; } old.start = start; old.end = end; old.locked = $('block-locked').checked; applySchedule(await api(`/api/v1/schedules/${state.saved.id}`, { method: 'PUT', body: JSON.stringify(updatePayload(content)) })); message('بلوک با حفظ سایر بلوک‌ها تغییر کرد.', true); } catch (error) { message(error.message); } };
   $('task-cancel').onclick = resetTask; $('event-cancel').onclick = resetEvent;
   $('recurrence-cancel').onclick = resetRecurrence; $('recurrence-frequency').onchange = toggleWeekdays;
+  $('export-ics').onclick = () => downloadSchedule('ics'); $('export-csv').onclick = () => downloadSchedule('csv');
+  $('export-pdf').onclick = () => { if (state.saved) window.print(); };
   $('saved-block').onchange = loadBlockIntoForm; $('undo').onclick = () => travel('undo'); $('redo').onclick = () => travel('redo');
   $('logout').onclick = async () => { try { await api('/api/v1/auth/logout', { method: 'POST' }); location.reload(); } catch (error) { message(error.message); } };
   api('/api/v1/auth/session').then(showPlanner).catch(() => {});

@@ -7,3 +7,5 @@
 .settings-card .actions{flex-wrap:wrap}.timeline h4{margin:16px 0 2px;border-bottom:1px solid #d8e0eb}
 .settings-card button:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:720px){.settings-grid{grid-template-columns:1fr}}
+@media(max-width:720px){.actions{flex-wrap:wrap}.actions button{max-width:100%}.shell{overflow-wrap:anywhere}.planner-card{overflow:hidden}}
+@media print{body{background:#fff;color:#111}.shell{max-width:none;padding:0}.topbar,.notice,.welcome,.settings-card,.layout,.lists,#schedule-form,#save-schedule-form,#saved-schedule,.saved-list,.planner-card>p{display:none!important}.planner-card{border:0;box-shadow:none;padding:0}.schedule-result{margin:0}.timeline{gap:3mm}.block,.block.fixed{break-inside:avoid;background:#fff;border:1px solid #777;padding:3mm}.unscheduled{break-inside:avoid;background:#fff;border:1px solid #777}#planner{display:block!important}}

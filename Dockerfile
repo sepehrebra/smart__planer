@@ -6,6 +6,7 @@ COPY src ./src
 COPY db ./db
 COPY scripts ./scripts
 RUN python -m pip install --no-cache-dir .
+RUN mkdir /app/data && chown 10001:10001 /app/data
 USER 10001:10001
 EXPOSE 8000
 CMD ["python", "scripts/start_dev.py"]

@@ -105,6 +105,7 @@
         </form>
         <section id="saved-schedule" class="saved-schedule hidden">
           <h3 id="saved-heading">برنامهٔ ذخیره‌شده</h3><p id="saved-status" class="muted"></p>
+          <div class="actions export-actions"><button id="export-ics" type="button">دانلود ICS</button><button id="export-csv" type="button">دانلود CSV</button><button id="export-pdf" type="button" class="quiet">چاپ / ذخیره PDF</button></div>
           <form id="block-form" class="three"><label>بلوک کار<select id="saved-block"></select></label><label>شروع<input id="block-start" type="datetime-local" required></label><label>پایان<input id="block-end" type="datetime-local" required></label><label class="check"><input id="block-locked" type="checkbox"> قفل این بلوک</label><button>ذخیرهٔ تغییر بلوک</button></form>
           <div class="actions"><button id="undo" type="button" class="quiet">Undo</button><button id="redo" type="button" class="quiet">Redo</button></div>
           <div id="history" class="history"></div>

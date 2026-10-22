@@ -2,6 +2,7 @@
 
 import re
 import secrets
+import sqlite3
 from datetime import datetime, time, timedelta, timezone
 from threading import BoundedSemaphore
 from typing import Annotated
@@ -39,7 +40,7 @@ TOKEN_FORMAT = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings.from_environment()
-    app = FastAPI(title="SmartPlanner", version="0.6.0", redoc_url=None)
+    app = FastAPI(title="SmartPlanner", version="0.8.0", redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[urlsplit(config.origin).hostname])
     app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
     passwords = Passwords()
@@ -72,7 +73,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(status_code=422, content={"code": "invalid_input", "message": "اطلاعات ورودی معتبر نیست.", "errors": errors})
 
     @app.exception_handler(psycopg.DatabaseError)
-    async def database_error_handler(request: Request, exc: psycopg.DatabaseError):
+    @app.exception_handler(sqlite3.DatabaseError)
+    async def database_error_handler(request: Request, exc):
         return JSONResponse(status_code=503, content={"code": "storage_unavailable", "message": "ذخیره‌سازی موقتاً در دسترس نیست؛ دوباره تلاش کنید."})
 
     def repository():
@@ -107,7 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/health")
     def health():
-        return {"status": "ok", "version": "0.6.0"}
+        return {"status": "ok", "version": "0.8.0"}
 
     @app.get("/api/v1/ready")
     def ready(repo: Repo):

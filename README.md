@@ -1,8 +1,8 @@
-# SmartPlanner — پایهٔ برنامه‌ریز شخصی
+# SmartPlanner — برنامه‌ریز شخصی سبک
 
 [![PostgreSQL tests](https://github.com/sepehrebra/smart__planer/actions/workflows/tests.yml/badge.svg)](https://github.com/sepehrebra/smart__planer/actions/workflows/tests.yml)
 
-نسخهٔ ۰٫۶: حساب کاربری، ترجیحات، مدیریت کارها، فعالیت‌های تکراری، برنامه‌ریز روز/هفته و ذخیرهٔ برنامه با تاریخچه و Undo/Redo با FastAPI و PostgreSQL.
+نسخهٔ ۰٫۸: حساب کاربری، ترجیحات، مدیریت کارها، فعالیت‌های تکراری، برنامه‌ریز روز/هفته و ذخیرهٔ برنامه با تاریخچه و Undo/Redo با FastAPI و SQLite. API هوش مصنوعی هنوز اضافه نشده است.
 
 مثال: کار «انگلیسی، ۶۰ دقیقه» ذخیره می‌شود و پس از شروع دوباره باقی می‌ماند. هر کاربر فقط کارهای خودش را می‌بیند. تلاش دوبارهٔ همان درخواست کار تکراری نمی‌سازد و ویرایش نسخهٔ قدیمی خطای تعارض می‌دهد.
 
@@ -24,10 +24,9 @@ python scripts/demo_schedule.py
 
 ## اجرا روی رایانه با Docker
 
-پیش‌نیاز: Python 3.12+ برای ساخت تنظیمات و Docker Desktop/Engine همراه Compose.
+پیش‌نیاز: Docker Desktop/Engine همراه Compose. برنامه در یک کانتینر CPU-only و با یک فایل SQLite اجرا می‌شود.
 
 ```bash
-python scripts/init_env.py
 docker compose up --build
 ```
 
@@ -39,11 +38,31 @@ docker compose up --build
 
 پس از پیش‌نمایش می‌توان برنامه را ذخیره کرد. در برنامهٔ ذخیره‌شده، تغییر زمان یک بلوک فقط همان بلوک را عوض می‌کند، قفل در تغییر جداگانه اعمال می‌شود و تاریخچه، Undo و Redo در دسترس‌اند. تغییر وضعیت کار به انجام‌شده یا لغوشده نیز از فرم ویرایش کار ممکن است؛ اگر منبع برنامه تغییر کرده باشد، رابط درخواست می‌کند پیش از تغییر برنامه یک پیش‌نمایش تازه بگیرید.
 
-`docker compose down` دادهٔ ذخیره‌شده را نگه می‌دارد. برای حفظ اطلاعات از گزینهٔ `-v` استفاده نکنید. پیکربندی Compose مخصوص توسعه روی localhost است؛ استقرار عمومی مرحلهٔ جداگانه دارد.
+`docker compose down` دادهٔ ذخیره‌شده را نگه می‌دارد. برای حفظ اطلاعات از گزینهٔ `-v` استفاده نکنید. خروجی ICS و CSV از برنامهٔ ذخیره‌شده دانلود می‌شود؛ دکمهٔ «چاپ / ذخیره PDF» از قابلیت Save as PDF مرورگر استفاده می‌کند.
 
-## اجرا با PostgreSQL موجود
+## بکاپ، بازیابی و سرور
 
-یک پایگاه توسعهٔ خالی بسازید. سپس در پوشهٔ پروژه:
+بکاپ SQLite با API آنلاین SQLite گرفته می‌شود و حتی هنگام اجرای برنامه تصویر سازگار می‌سازد. فایل بکاپ را حتماً بیرون از volume سرور نگه دارید:
+
+```bash
+docker compose exec -T api python scripts/sqlite_backup.py backup /app/data/smartplanner-backup.db
+docker compose cp api:/app/data/smartplanner-backup.db ./smartplanner-backup.db
+```
+
+برای بررسی بکاپ: `python scripts/sqlite_backup.py verify PATH` (با `DATABASE_URL` از نوع SQLite). بازیابی فقط در مسیر پایگاه *خالی* انجام می‌شود و فایل موجود را بازنویسی نمی‌کند: پس از توقف برنامه و آماده‌کردن یک volume خالی، بکاپ را به کانتینر موقت بدهید و `python scripts/sqlite_backup.py restore PATH` اجرا کنید. قبل از حذف volume قدیمی، نسخهٔ سالم آن را نگه دارید. آزمون خودکار بکاپ/بازیابی در `tests/test_sqlite_api.py` وجود دارد.
+
+برای سرور، یک reverse proxy با HTTPS جلوی پورت loopback `8000` قرار دهید. `APP_ORIGIN` را دقیقاً به نشانی عمومی HTTPS تنظیم کنید و پس از مهاجرت، کانتینر را با فایل production بالا بیاورید:
+
+```bash
+docker compose -f compose.yaml -f compose.prod.yaml run --rm api python -m smartplanner.migrate
+docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+```
+
+پیکربندی production، کوکی Secure را اجباری و پردازش را تک‌کارگری نگه می‌دارد. اجرای عمومی بدون TLS، بکاپ بیرون از سرور و آزمون دستی با چند کاربر توصیه نمی‌شود. SQLite برای یک سرور کوچک مناسب است؛ چند replica با یک فایل مشترک پشتیبانی نمی‌شود.
+
+## اجرا با SQLite محلی
+
+در پوشهٔ پروژه:
 
 ```bash
 python -m venv .venv
@@ -55,10 +74,10 @@ python -m venv .venv
 python -m pip install -e '.[test]'
 ```
 
-متغیر `DATABASE_URL` را به اتصال پایگاه خود تنظیم کنید. نمونهٔ PowerShell با مقادیر جایگزین:
+مسیر پایگاه را مشخص کنید. نمونهٔ PowerShell:
 
 ```powershell
-$env:DATABASE_URL = 'postgresql://USER:PASSWORD@localhost:5432/smartplanner'
+$env:DATABASE_URL = 'sqlite:///data/smartplanner.db'
 $env:APP_ORIGIN = 'http://localhost:8000'
 python -m smartplanner.migrate
 uvicorn smartplanner.api:create_app --factory --host 127.0.0.1 --port 8000 --no-access-log
@@ -82,7 +101,7 @@ $env:SMARTPLANNER_TEST_DB_FLAVOR = 'native'
 python scripts/run_tests.py
 ```
 
-GitHub Actions همین آزمون‌ها را با PostgreSQL 17 اجرا می‌کند؛ سپس پایگاه را دوباره راه می‌اندازد و ماندگاری حساب و کار را بررسی می‌کند.
+آزمون SQLite با `python -m unittest -v tests.test_sqlite_api` اجرا می‌شود. GitHub Actions آزمون‌های قدیمی PostgreSQL را نیز برای جلوگیری از پسرفت مسیر قبلی اجرا می‌کند؛ انتقال خودکار دادهٔ PostgreSQL موجود به SQLite در این نسخه انجام نمی‌شود.
 
 بررسی راه‌اندازی دوباره، برنامهٔ ذخیره‌شده، مسیر Undo/Redo، رسید درخواست تکراری، الگوی تکرار و نوبت‌های مستقل و حذف‌شده را نیز پوشش می‌دهد. نسخهٔ ۰٫۶ migration شمارهٔ ۶ را برای ساعت فعالیت اعمال می‌کند؛ `python -m smartplanner.migrate` نسخه‌های لازم را بدون حذف دادهٔ قبلی اعمال می‌کند. قبل از ارتقای دادهٔ واقعی نسخهٔ پشتیبان بگیرید؛ بازگرداندن خودکار migration ارائه نشده است.
 

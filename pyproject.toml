@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smartplanner-foundation"
-version = "0.6.0"
-description = "SmartPlanner foundation API with PostgreSQL storage"
+version = "0.8.0"
+description = "SmartPlanner personal scheduler with SQLite storage"
 requires-python = ">=3.12"
 dependencies = [
   "pydantic==2.13.5",

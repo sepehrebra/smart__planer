@@ -11,6 +11,18 @@ LATEST_SCHEMA = 6
 
 
 def migrate(database_url: str, directory: Path) -> list[int]:
+    if database_url.startswith("sqlite:///"):
+        with connect(database_url) as conn:
+            before = conn.raw.execute("PRAGMA user_version").fetchone()[0]
+            if before == 6:
+                return []
+            if before != 0:
+                raise RuntimeError("Unsupported SQLite schema version; restore a backup before upgrading.")
+            if conn.raw.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
+                raise RuntimeError("Existing unversioned SQLite database; refusing to overwrite it.")
+            schema = (directory.parent / "sqlite_schema.sql").read_text(encoding="utf-8")
+            conn.raw.executescript("BEGIN IMMEDIATE;\n" + schema + "\nPRAGMA user_version=6;\nCOMMIT;")
+            return [6]
     files = sorted(directory.glob("[0-9][0-9][0-9]_*.sql"))
     if not files:
         raise RuntimeError("No migration files found; run from the project directory.")

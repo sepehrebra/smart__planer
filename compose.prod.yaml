@@ -1,0 +1,9 @@
+services:
+  api:
+    command: ["python", "scripts/start_prod.py"]
+    environment:
+      APP_ENV: production
+      SESSION_COOKIE_SECURE: "true"
+      APP_ORIGIN: ${APP_ORIGIN:?Set the public HTTPS origin}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.parse,urllib.request; host=urllib.parse.urlsplit(os.environ['APP_ORIGIN']).netloc; request=urllib.request.Request('http://127.0.0.1:8000/api/v1/ready',headers={'Host':host}); urllib.request.urlopen(request,timeout=3)"]
