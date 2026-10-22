@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from smartplanner.api import create_app
 from smartplanner.migrate import migrate
 from smartplanner.settings import Settings
-from scripts.sqlite_backup import backup, restore, verify
+from smartplanner.backup import backup, restore, verify
 
 
 class SQLiteApiTests(unittest.TestCase):
