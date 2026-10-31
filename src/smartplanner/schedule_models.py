@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, Field, model_validator
 
 from .models import Contract, Title, Version
-from .planning_models import PlanBlock, PlanningWindow, TimeWindow, UnscheduledTask
+from .planning_models import FixedEvent, PlanBlock, PlanPreview, PlanningWindow, TimeWindow, UnscheduledTask
 
 
 class ScheduleContent(PlanningWindow):
@@ -95,3 +95,15 @@ class HistoryEntry(Contract):
     title: Title
     current: bool
     created_at: AwareDatetime
+
+
+class ReplanRequest(Contract):
+    expected_version: Version
+    # Complete list of ad-hoc events, excluding durable events loaded by server.
+    fixed_events: Annotated[tuple[FixedEvent, ...], Field(max_length=100)]
+
+
+class ReplanResult(Contract):
+    expected_version: Version
+    title: Title
+    preview: PlanPreview

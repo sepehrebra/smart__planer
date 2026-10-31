@@ -11,7 +11,7 @@ from psycopg.types.json import Jsonb
 from .accounts import PreferenceRecord
 from .errors import AppError, not_found
 from .models import TaskRecord
-from .planning_models import TimeWindow
+from .planning_models import FixedEvent, PreviewRequest, TimeWindow
 from .repository import TASK_COLUMNS
 from .schedule_models import (
     HistoryEntry, SavedSchedule, SavedState, ScheduleResult, ScheduleSummary, SourceStatus,
@@ -99,6 +99,35 @@ class ScheduleRepository:
             self.conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             result = self._view(owner, schedule_id)
         return result
+
+    def replan(self, owner, schedule_id, data):
+        """Read one coherent snapshot; CPU work and explicit save stay separate."""
+        from .fixed_event_repository import FixedEventRepository
+        from .repository import Repository
+        from .schedule_models import ReplanResult
+        from .scheduler import build_preview
+
+        with self.conn.transaction():
+            self.conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            header = self._header(owner, schedule_id)
+            self._next_version(header, data.expected_version)
+            previous = SavedState.model_validate(header["state"])
+            repo = Repository(self.conn)
+            preferences = repo.get_preferences(owner)
+            tasks = tuple(repo.get_task(owner, key) for key in previous.content.task_ids)
+            # Fetch one extra record to detect the bound instead of silently truncating.
+            stored = FixedEventRepository(self.conn).list(
+                owner, start=header["start_at"], end=header["end_at"], limit=101)
+            events = tuple(FixedEvent(title=e.title, start=e.start, end=e.end) for e in stored) + data.fixed_events
+            if len(events) > 100:
+                raise AppError(422, "too_many_fixed_events", "تعداد تعهدهای ثابت در این بازه بیش از حد مجاز است.")
+            request = PreviewRequest(
+                start_date=previous.content.start_date, days=previous.content.days,
+                task_ids=previous.content.task_ids, availability=previous.content.availability,
+                fixed_events=events, previous_blocks=previous.content.blocks)
+        preview = build_preview(request, tasks, preferences, timezone_name=header["timezone"],
+                                now=datetime.now(timezone.utc), preference_version=preferences.version)
+        return ReplanResult(expected_version=header["version"], title=previous.title, preview=preview)
 
     def list(self, owner, limit=20, offset=0):
         rows = self.conn.execute(
