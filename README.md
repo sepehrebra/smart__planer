@@ -103,6 +103,8 @@ python scripts/run_tests.py
 
 آزمون SQLite با `python -m unittest -v tests.test_sqlite_api` اجرا می‌شود. GitHub Actions آزمون‌های قدیمی PostgreSQL را نیز برای جلوگیری از پسرفت مسیر قبلی اجرا می‌کند؛ انتقال خودکار دادهٔ PostgreSQL موجود به SQLite در این نسخه انجام نمی‌شود.
 
+آزمون واقعی رابط با Chrome/Chromium و پایگاه SQLite موقت اجرا می‌شود. ابتدا `npm ci`، سپس `npm run test:e2e` را اجرا کنید. روی Windows از Chrome نصب‌شده استفاده می‌شود؛ در CI، Chromium مربوط به Playwright نصب می‌شود. شکست‌ها trace و screenshot را در `test-results/` نگه می‌دارند.
+
 بررسی راه‌اندازی دوباره، برنامهٔ ذخیره‌شده، مسیر Undo/Redo، رسید درخواست تکراری، الگوی تکرار و نوبت‌های مستقل و حذف‌شده را نیز پوشش می‌دهد. نسخهٔ ۰٫۶ migration شمارهٔ ۶ را برای ساعت فعالیت اعمال می‌کند؛ `python -m smartplanner.migrate` نسخه‌های لازم را بدون حذف دادهٔ قبلی اعمال می‌کند. قبل از ارتقای دادهٔ واقعی نسخهٔ پشتیبان بگیرید؛ بازگرداندن خودکار migration ارائه نشده است.
 
 ## رفتارهای مهم

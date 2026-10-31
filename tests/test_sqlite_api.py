@@ -124,6 +124,18 @@ class SQLiteApiTests(unittest.TestCase):
             for client in clients:
                 client.close()
 
+    def test_duplicate_request_and_invalid_input_leave_one_valid_task(self):
+        data = {"client_request_id": str(uuid4()), "title": "One task", "duration_minutes": 30}
+        created = self.a.post("/api/v1/tasks", json=data)
+        self.assertEqual(created.status_code, 201, created.text)
+        replay = self.a.post("/api/v1/tasks", json=data)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertEqual(replay.json()["id"], created.json()["id"])
+        self.assertEqual(self.a.post("/api/v1/tasks", json={**data, "duration_minutes": 60}).status_code, 409)
+        self.assertEqual(self.a.post("/api/v1/tasks", json={**data, "client_request_id": str(uuid4()), "duration_minutes": -1}).status_code, 422)
+        tasks = self.a.get("/api/v1/tasks").json()
+        self.assertEqual([(task["id"], task["duration_minutes"]) for task in tasks], [(created.json()["id"], 30)])
+
     def test_small_four_worker_read_burst(self):
         with ThreadPoolExecutor(max_workers=4) as pool:
             responses = list(pool.map(lambda index: (self.a if index % 2 else self.b).get("/api/v1/tasks").status_code,
